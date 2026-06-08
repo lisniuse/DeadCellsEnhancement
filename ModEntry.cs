@@ -74,10 +74,10 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 当前运行时动画速度加成缩放。正式模式和调试模式都会使用这个缩放。
     private static double _animationSpeedBonusScale = DefaultAnimationSpeedBonusScale;
 
-    // 当前运行时是否启用顶满测试模式。只有 debug_speed_config.json 存在且 SpeedLevel=5 时才会启用。
+    // 当前运行时是否启用顶满测试模式。正式细胞匹配档位不会启用它，保留给以后内部调试使用。
     private static bool _useWorkshopMaxSpeedTest = DefaultUseWorkshopMaxSpeedTest;
 
-    // 当前运行时顶满测试动画速度下限。只有 debug_speed_config.json 存在且 SpeedLevel=5 时才会使用。
+    // 当前运行时顶满测试动画速度下限。正式细胞匹配档位不会使用它，保留给以后内部调试使用。
     private static double _workshopAnimSpeedFloor = DefaultWorkshopAnimSpeedFloor;
 
     // 当前帧检测到玩家是否装备了迅捷护符。
@@ -103,6 +103,9 @@ public class ModEntry(ModInfo info) : ModBase(info),
 
     // 当前是否正在使用 debug_speed_config.json。false 表示正式模式：按 Boss 细胞计算，0 细胞无加成。
     private static bool _usingDebugConfig;
+
+    // 调试配置模拟的 Boss 细胞数。debug_speed_config.json 存在时，SpeedLevel 会直接写到这里。
+    private static int _debugBossCells;
 
     // 配置文件重载计时器。每帧都读文件太浪费，所以按固定间隔检查一次。
     private static double _configReloadTimer;
@@ -435,11 +438,14 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 根据当前 Boss 细胞数量计算最终攻速加成。
     private static double GetSpeedBonus(Hero hero)
     {
-        // 读取当前 Boss Cell 数量，并且防止异常值低于 0。
-        var bossCells = System.Math.Max(0, GetCurrentBossCells(hero));
+        // 调试模式下，SpeedLevel 直接等于“模拟几细胞”；正式模式下，读取游戏真实 Boss Cell 数。
+        var bossCells = _usingDebugConfig
+            ? System.Math.Clamp(_debugBossCells, 0, 5)
+            : System.Math.Max(0, GetCurrentBossCells(hero));
 
         // 正式模式下 0 细胞没有任何加成，直接返回 0，ModifyWeaponStats 会因此完全跳过。
-        if (!_usingDebugConfig && bossCells <= 0) return 0;
+        // 调试模式下 SpeedLevel = 0 也同样没有任何加成，方便和原版手感做 A/B 对比。
+        if (bossCells <= 0) return 0;
 
         // 最终加成 = 基础加成 + Boss Cell 数量 * 每细胞加成，并限制到最大加成。
         return System.Math.Min(_baseSpeedBonus + bossCells * _bonusPerBossCell, _maxSpeedBonus);
@@ -879,8 +885,8 @@ public class ModEntry(ModInfo info) : ModBase(info),
             var config = JsonSerializer.Deserialize<SpeedTalismanConfig>(json);
             if (config == null) return;
 
-            // SpeedLevel 是唯一需要手动编辑的参数；范围固定在 1 到 5。
-            var speedLevel = System.Math.Clamp(config.SpeedLevel <= 0 ? 2 : config.SpeedLevel, 1, 5);
+            // SpeedLevel 是唯一需要手动编辑的参数；范围固定在 0 到 5，数值对应“模拟几细胞”。
+            var speedLevel = System.Math.Clamp(config.SpeedLevel, 0, 5);
 
             // 根据档位套用内部参数，避免每次测试都要手动改一堆小数。
             ApplySpeedLevel(speedLevel);
@@ -910,60 +916,25 @@ public class ModEntry(ModInfo info) : ModBase(info),
         _animationSpeedBonusScale = DefaultAnimationSpeedBonusScale;
         _useWorkshopMaxSpeedTest = DefaultUseWorkshopMaxSpeedTest;
         _workshopAnimSpeedFloor = DefaultWorkshopAnimSpeedFloor;
+        _debugBossCells = 0;
         _usingDebugConfig = false;
     }
 
-    // 根据 1 到 5 档套用攻速参数。
+    // 根据 0 到 5 档套用攻速参数；SpeedLevel 数值直接对应“模拟几细胞”。
     private static void ApplySpeedLevel(int speedLevel)
     {
-        // 默认不开启顶满测试；只有第 5 档会切到 Workshop 风格 0CD。
+        // 调试档位也不开启顶满测试；5 档代表 5 细胞手感，不再代表 0CD。
         _useWorkshopMaxSpeedTest = false;
         _workshopAnimSpeedFloor = DefaultWorkshopAnimSpeedFloor;
 
-        switch (speedLevel)
-        {
-            case 1:
-                // 轻微加速：适合长期游玩，不容易破坏节奏。
-                _baseSpeedBonus = 0.05;
-                _bonusPerBossCell = 0.025;
-                _maxSpeedBonus = 0.15;
-                _animationSpeedBonusScale = 0.30;
-                break;
+        // 0 细胞没有加成；1-3 细胞每级 10%；4-5 细胞受 35% 上限保护。
+        _baseSpeedBonus = 0.00;
+        _bonusPerBossCell = 0.10;
+        _maxSpeedBonus = 0.35;
+        _debugBossCells = speedLevel;
 
-            case 2:
-                // 当前推荐档：有提升，但比之前 25% 档温和很多。
-                _baseSpeedBonus = 0.10;
-                _bonusPerBossCell = 0.05;
-                _maxSpeedBonus = 0.35;
-                _animationSpeedBonusScale = 0.50;
-                break;
-
-            case 3:
-                // 明显加速：测试爽感，但还保留一些武器节奏。
-                _baseSpeedBonus = 0.15;
-                _bonusPerBossCell = 0.075;
-                _maxSpeedBonus = 0.50;
-                _animationSpeedBonusScale = 0.65;
-                break;
-
-            case 4:
-                // 高速档：接近强力 Mod 手感，但不直接清零冷却。
-                _baseSpeedBonus = 0.20;
-                _bonusPerBossCell = 0.10;
-                _maxSpeedBonus = 0.65;
-                _animationSpeedBonusScale = 0.80;
-                break;
-
-            case 5:
-                // 顶满测试档：模拟 Workshop 0CD 风格，用来快速验证上限手感。
-                _baseSpeedBonus = 0.85;
-                _bonusPerBossCell = 0.00;
-                _maxSpeedBonus = 0.85;
-                _animationSpeedBonusScale = 1.00;
-                _useWorkshopMaxSpeedTest = true;
-                _workshopAnimSpeedFloor = 2.0;
-                break;
-        }
+        // 0 细胞没有动画加成；其他档位动画速度吃一半加成，避免体感过快。
+        _animationSpeedBonusScale = speedLevel <= 0 ? 0.00 : 0.50;
     }
 
     // 写入 Mod 自己的调试日志文件。
@@ -987,8 +958,8 @@ public class ModEntry(ModInfo info) : ModBase(info),
 // 热加载配置文件的数据结构。属性名会原样写入 speed_config.json。
 internal sealed class SpeedTalismanConfig
 {
-    // 攻速档位：1=轻微，2=推荐，3=明显，4=高速，5=顶满测试。
-    public int SpeedLevel { get; set; } = 2;
+    // 攻速档位：0-5，对应模拟 0-5 Boss 细胞。
+    public int SpeedLevel { get; set; } = 0;
 }
 
 // 这个静态类专门保存 Weapon.create 的 hook 委托和 hook 方法。

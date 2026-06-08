@@ -14,4 +14,4 @@ For local testing only, create `debug_speed_config.json` next to the installed m
 }
 ```
 
-`SpeedLevel` ranges from `1` to `5`. If the file is absent, the mod uses production scaling based on Boss Cell count, and 0 Boss Cells get no speed bonus.
+`SpeedLevel` ranges from `0` to `5` and directly means "simulate this many Boss Cells". If the file is absent, the mod uses production scaling based on the real Boss Cell count, and 0 Boss Cells get no speed bonus.
