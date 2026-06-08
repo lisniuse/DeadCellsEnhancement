@@ -32,6 +32,15 @@ public class ModEntry(ModInfo info) : ModBase(info),
     IOnAfterLoadingAssets,
     IOnHeroUpdate
 {
+    // 所有功能模块的统一列表。初始化和每帧更新都按这个顺序遍历，新增功能只需在这里追加一项。
+    private static readonly Core.IModFeature[] _features =
+    [
+        new SpeedInstinctFeature(),
+        new HealthGrowthFeature(),
+        new PerkLimitFeature(),
+        new LegendaryForgeFeature(),
+    ];
+
     // 调试日志路径。Initialize 中根据 ModRoot 设置，指向 coremod/mods/DeadCellsEnhancement/moddbg.log。
     private static string? _debugLogPath;
 
@@ -90,11 +99,11 @@ public class ModEntry(ModInfo info) : ModBase(info),
         Hook_PrGame.init += Hook_PrGame_init;
         Hook_PrGame.onDispose += Hook_PrGame_onDispose;
 
-        // 初始化各个独立功能模块。后续新增功能时优先放到 Features 目录，不继续塞进 ModEntry。
-        SpeedInstinctFeature.Initialize(HashlinkHooks.Instance);
-        HealthGrowthFeature.Initialize();
-        PerkLimitFeature.Initialize();
-        LegendaryForgeFeature.Initialize();
+        // 统一初始化所有功能模块。新增功能时只需放进 Features 目录并加进 _features 列表，不再改动这里。
+        foreach (var feature in _features)
+        {
+            feature.Initialize();
+        }
     }
 
     // 原游戏 dc.pr.Game 初始化时调用；缓存 self，之后读取正式 Boss Cell 难度使用它。
@@ -150,9 +159,11 @@ public class ModEntry(ModInfo info) : ModBase(info),
             ReloadConfigIfChanged(force: false);
         }
 
-        // 更新独立功能模块的运行时状态。
-        SpeedInstinctFeature.OnHeroUpdate(hero);
-        HealthGrowthFeature.OnHeroUpdate(hero);
+        // 统一更新所有功能模块的每帧状态。只关心初始化的功能用接口默认空实现，不会有额外开销。
+        foreach (var feature in _features)
+        {
+            feature.OnHeroUpdate(hero);
+        }
     }
 
     // 判断当前英雄是否已经选择了指定变异。

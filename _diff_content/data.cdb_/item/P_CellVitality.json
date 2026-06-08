@@ -4,8 +4,8 @@
   },
   "synergy": [],
   "props": {
-    "prct": 0.2,
-    "duration": 2
+    "prct": 0.0,
+    "duration": 0
   },
   "gameplayDesc": "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus.",
   "moneyCost": 0,

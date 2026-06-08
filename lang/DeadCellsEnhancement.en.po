@@ -20,3 +20,6 @@ msgstr "Cell Vitality"
 
 msgid "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus."
 msgstr "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus."
+
+msgid "Reforge to random Legendary quality"
+msgstr "Reforge to random Legendary quality"

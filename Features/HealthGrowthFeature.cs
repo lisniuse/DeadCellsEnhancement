@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 namespace DeadCellsEnhancement;
 
 // “细胞活力”功能：选择变异后，每击杀一个敌人就按当前 Boss 细胞数提高最大生命值。
-internal static class HealthGrowthFeature
+internal sealed class HealthGrowthFeature : Core.IModFeature
 {
     // CDB 里新增变异的 id。这个 id 会写入存档，所以确定后不要随意改名。
     internal const string MutationId = "P_CellVitality";
@@ -15,43 +15,43 @@ internal static class HealthGrowthFeature
     private const int LifePerBossCellPerKill = 100;
 
     // 记录当前帧是否选择了本变异，用于日志和击杀时快速判断。
-    private static bool _isSelected;
+    private bool _isSelected;
 
     // 本轮累计增加的最大生命值。装备/护符刷新后会用它重新套回生命上限。
-    private static int _accumulatedMaxLifeBonus;
+    private int _accumulatedMaxLifeBonus;
 
     // 当前已经实际套到 hero.maxLife 上的那部分加成。重新计算基础生命时要先扣掉它，避免重复叠加。
-    private static int _appliedMaxLifeBonus;
+    private int _appliedMaxLifeBonus;
 
     // 最近一次由本功能写出的 maxLife。用来判断游戏是否因为换护符/装备刷新了生命上限。
-    private static int? _lastAppliedMaxLife;
+    private int? _lastAppliedMaxLife;
 
     // 换装备/护符前临时保存的当前生命值。
     // 游戏的装备替换流程有时不会走 onEquipedItemsChange，或者会先把 life 压低再进入我们的每帧修复。
     // 所以在 pickItem 入口提前保存，随后几帧发现生命被装备刷新改低时再恢复回来。
-    private static int? _pendingEquipmentLife;
+    private int? _pendingEquipmentLife;
 
     // 上面那份临时生命快照还剩多少帧有效。只保留很短窗口，避免玩家正常受伤后被误治疗。
-    private static int _pendingEquipmentLifeFrames;
+    private int _pendingEquipmentLifeFrames;
 
     // 最近一次看到的玩家生命值。用来在装备刷新窗口中判断是否发生了非伤害来源的降血。
-    private static int? _lastSeenLife;
+    private int? _lastSeenLife;
 
     // 最近一次看到的玩家最大生命值。辅助日志定位 updateMaxLife/overrideMaxLife 的真实影响。
-    private static int? _lastSeenMaxLife;
+    private int? _lastSeenMaxLife;
 
     // 当前是否正在由本功能主动写入生命/最大生命。
     // 这个标记可以避免我们 Hook 到自己的 overrideMaxLife/setLifeAndRally 调用后重复处理。
-    private static bool _isWritingLife;
+    private bool _isWritingLife;
 
     // 已经处理过的敌人对象身份。防止同一个死亡事件被多个游戏流程重复通知时反复加生命。
-    private static readonly System.Collections.Generic.Queue<int> _recentMobKeys = [];
+    private readonly System.Collections.Generic.Queue<int> _recentMobKeys = [];
 
     // 最近处理过的敌人集合。配合队列做上限控制，避免长时间游戏后无限增长。
-    private static readonly System.Collections.Generic.HashSet<int> _recentMobKeySet = [];
+    private readonly System.Collections.Generic.HashSet<int> _recentMobKeySet = [];
 
     // 初始化功能，注册英雄击杀敌人的回调。
-    internal static void Initialize()
+    public void Initialize()
     {
         Hook_Hero.onMobDeath += Hook_Hero_onMobDeath;
         Hook_Hero.onEquipedItemsChange += Hook_Hero_onEquipedItemsChange;
@@ -64,7 +64,7 @@ internal static class HealthGrowthFeature
     }
 
     // 每帧更新变异选择状态。只在状态变化时写日志，避免刷屏。
-    internal static void OnHeroUpdate(Hero hero)
+    public void OnHeroUpdate(Hero hero)
     {
         var wasSelected = _isSelected;
         _isSelected = ModEntry.HasMutation(hero, MutationId, "Health growth mutation");
@@ -90,7 +90,7 @@ internal static class HealthGrowthFeature
     }
 
     // 原游戏 Hero.onMobDeath 的 Hook。先让原版逻辑完整执行，再追加最大生命值成长。
-    private static void Hook_Hero_onMobDeath(Hook_Hero.orig_onMobDeath orig, Hero self, Mob mob)
+    private void Hook_Hero_onMobDeath(Hook_Hero.orig_onMobDeath orig, Hero self, Mob mob)
     {
         orig(self, mob);
         ApplyLifeGrowthOnKill(self, mob);
@@ -98,7 +98,7 @@ internal static class HealthGrowthFeature
 
     // 原游戏 Hero.pickItem 的 Hook。这里是玩家捡起或替换装备的更早入口。
     // 在原版替换逻辑运行之前保存当前生命，防止装备刷新流程稍后把 life 改低。
-    private static void Hook_Hero_pickItem(
+    private void Hook_Hero_pickItem(
         Hook_Hero.orig_pickItem orig,
         Hero self,
         dc.Entity from,
@@ -113,7 +113,7 @@ internal static class HealthGrowthFeature
 
     // 原游戏 Hero.onAfterPickItem 的 Hook。这个入口在捡起装备后的收尾阶段触发。
     // 再补一次恢复，可以覆盖 pickItem 内部异步回调或延迟 HUD/装备刷新造成的生命变化。
-    private static void Hook_Hero_onAfterPickItem(
+    private void Hook_Hero_onAfterPickItem(
         Hook_Hero.orig_onAfterPickItem orig,
         Hero self,
         dc.tool.InventItem i)
@@ -126,7 +126,7 @@ internal static class HealthGrowthFeature
 
     // 原游戏 Hero.setLifeAndRally 的 Hook。这个是常见的“设置当前生命值”入口。
     // 装备刷新期间如果它试图把生命调低，我们直接把参数改回换装前快照。
-    private static void Hook_Hero_setLifeAndRally(
+    private void Hook_Hero_setLifeAndRally(
         Hook_Hero.orig_setLifeAndRally orig,
         Hero self,
         int life,
@@ -148,7 +148,7 @@ internal static class HealthGrowthFeature
 
     // 原游戏 Hero.updateMaxLife 的 Hook。护符/装备属性变化通常会触发它重算最大生命。
     // 原版逻辑结束后立刻重新套本功能的最大生命加成，并恢复装备替换前的当前生命。
-    private static void Hook_Hero_updateMaxLife(Hook_Hero.orig_updateMaxLife orig, Hero self)
+    private void Hook_Hero_updateMaxLife(Hook_Hero.orig_updateMaxLife orig, Hero self)
     {
         var oldLife = self.life;
         var oldMaxLife = self.maxLife;
@@ -175,7 +175,7 @@ internal static class HealthGrowthFeature
 
     // 原游戏 Hero.overrideMaxLife 的 Hook。这个入口会直接覆盖最大生命值。
     // 我们主要用它做定位日志，并在装备窗口中保证当前生命不会被后续流程压低。
-    private static void Hook_Hero_overrideMaxLife(
+    private void Hook_Hero_overrideMaxLife(
         Hook_Hero.orig_overrideMaxLife orig,
         Hero self,
         int newMaxLife)
@@ -199,7 +199,7 @@ internal static class HealthGrowthFeature
 
     // 原游戏在更换护符/装备后会重算 maxLife 和 life。
     // 这里在原版逻辑前保存当前生命，原版逻辑后再恢复，避免“最大生命没变但当前生命被换装刷新改掉”。
-    private static void Hook_Hero_onEquipedItemsChange(
+    private void Hook_Hero_onEquipedItemsChange(
         Hook_Hero.orig_onEquipedItemsChange orig,
         Hero self,
         Ref<bool> updateHUD,
@@ -232,7 +232,7 @@ internal static class HealthGrowthFeature
 
     // 开始一次装备刷新生命保护。
     // 只有当前玩家、已选择“细胞活力”、并且已经有累计生命加成时才需要保护。
-    private static void BeginEquipmentLifePreservation(Hero hero, string reason)
+    private void BeginEquipmentLifePreservation(Hero hero, string reason)
     {
         if (!ShouldProtectEquipmentLife(hero)) return;
 
@@ -248,7 +248,7 @@ internal static class HealthGrowthFeature
     }
 
     // 判断当前英雄是否需要启用装备刷新生命保护。
-    private static bool ShouldProtectEquipmentLife(Hero hero)
+    private bool ShouldProtectEquipmentLife(Hero hero)
     {
         return ReferenceEquals(hero, Game.Instance.HeroInstance)
             && _isSelected;
@@ -256,7 +256,7 @@ internal static class HealthGrowthFeature
 
     // 在装备刷新窗口中，如果发现当前生命已经低于上一帧/换装前生命，就把更高值作为恢复目标。
     // 这可以覆盖游戏直接写 hero.life 字段、不走 setLifeAndRally 的情况。
-    private static void CaptureEquipmentLifeDrop(Hero hero, string reason)
+    private void CaptureEquipmentLifeDrop(Hero hero, string reason)
     {
         if (!ShouldProtectEquipmentLife(hero)) return;
 
@@ -278,7 +278,7 @@ internal static class HealthGrowthFeature
 
     // 如果存在换装前生命快照，就把当前生命恢复到快照值。
     // 恢复前先重新套一遍最大生命加成，确保目标生命不会超过新的 maxLife。
-    private static void RestorePendingEquipmentLife(Hero hero, string reason)
+    private void RestorePendingEquipmentLife(Hero hero, string reason)
     {
         if (!ShouldProtectEquipmentLife(hero)) return;
         if (!_pendingEquipmentLife.HasValue) return;
@@ -319,7 +319,7 @@ internal static class HealthGrowthFeature
     }
 
     // 在玩家击杀敌人后增加最大生命值。
-    private static void ApplyLifeGrowthOnKill(Hero hero, Mob mob)
+    private void ApplyLifeGrowthOnKill(Hero hero, Mob mob)
     {
         try
         {
@@ -356,7 +356,7 @@ internal static class HealthGrowthFeature
     }
 
     // 把累计生命加成重新套到当前英雄身上。返回旧值用于日志记录。
-    private static (int OldMaxLife, int OldLife) ReapplyAccumulatedBonus(
+    private (int OldMaxLife, int OldLife) ReapplyAccumulatedBonus(
         Hero hero,
         string reason,
         int? forcedLife = null)
@@ -414,7 +414,7 @@ internal static class HealthGrowthFeature
     }
 
     // 记录一个敌人对象是否已经处理过。返回 true 表示本次是第一次见到。
-    private static bool RememberMobOnce(Mob mob)
+    private bool RememberMobOnce(Mob mob)
     {
         var mobKey = RuntimeHelpers.GetHashCode(mob);
         if (_recentMobKeySet.Contains(mobKey)) return false;

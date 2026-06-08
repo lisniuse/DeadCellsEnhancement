@@ -20,3 +20,6 @@ msgstr "细胞活力"
 
 msgid "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus."
 msgstr "只有选择这项变异时，每击杀一个敌人都会使最大生命值增加已激活 Boss 细胞数 x 100。0 细胞时没有加成。"
+
+msgid "Reforge to random Legendary quality"
+msgstr "重铸为随机金色品质"

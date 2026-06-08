@@ -9,16 +9,17 @@ namespace DeadCellsEnhancement;
 
 // “传奇重铸”功能：在小铸造所每件可重铸装备下面追加一个自定义选项。
 // 玩家花费固定金币后，把当前装备升级/重随为传奇（金色）品质。
-internal static class LegendaryForgeFeature
+internal sealed class LegendaryForgeFeature : Core.IModFeature
 {
     // 每次尝试升级为传奇品质需要消耗的金币数量。
     private const int LegendaryUpgradeCost = 6000;
 
-    // 自定义选项在 UI 上显示的文字。先用纯文本验证功能，后续可以继续打磨成带金币图标的原版样式。
-    private const string LegendaryUpgradeLabel = "升级为随机金色品质 6000";
+    // 选项文字里需要翻译的部分。金币数量在运行时拼到后面，所以这里只翻译描述本身。
+    // 翻译来自 lang/DeadCellsEnhancement.<lang>.mo，英文回退到 msgid 本身。
+    private const string LegendaryUpgradeLabelKey = "Reforge to random Legendary quality";
 
     // 初始化功能，挂进小铸造所的装备行创建流程。
-    internal static void Initialize()
+    public void Initialize()
     {
         Hook_ForgeUnderground.addItem += Hook_ForgeUnderground_addItem;
         ModEntry.DebugLog($"LegendaryForgeFeature initialized: cost={LegendaryUpgradeCost}.");
@@ -26,7 +27,7 @@ internal static class LegendaryForgeFeature
 
     // 小铸造所每添加一件装备时会调用 addItem。
     // 原版会在这里生成“重铸额外特性”“提升到 ++ 质量”等选项；我们在原版逻辑后追加一项。
-    private static dc.h2d.Flow Hook_ForgeUnderground_addItem(
+    private dc.h2d.Flow Hook_ForgeUnderground_addItem(
         Hook_ForgeUnderground.orig_addItem orig,
         ForgeUnderground self,
         InventItem item,
@@ -48,7 +49,7 @@ internal static class LegendaryForgeFeature
     }
 
     // 在指定装备行里追加“升级为随机金色品质”选项，并注册到小铸造所的选择系统。
-    private static void AddLegendaryUpgradeChoice(ForgeUnderground forge, InventItem item, dc.h2d.Flow itemFlow)
+    private void AddLegendaryUpgradeChoice(ForgeUnderground forge, InventItem item, dc.h2d.Flow itemFlow)
     {
         // FlowBox 是原版 UI 中可被 registerChoice 管理的选项容器。
         var choiceBox = new FlowBox(itemFlow)
@@ -70,7 +71,9 @@ internal static class LegendaryForgeFeature
             new Ref<double>(ref textScale),
             new ImageVerticalAlign.Middle(),
             null);
-        label.text = LegendaryUpgradeLabel.AsHaxeString();
+        // 用 GetText 取本地化文字（英文环境回退到 msgid 本身），再把金币数量拼到后面。
+        var labelText = $"{GetText.Instance.GetString(LegendaryUpgradeLabelKey)} {LegendaryUpgradeCost}";
+        label.text = labelText.AsHaxeString();
 
         // canBeUsed 决定选项是否可用。这里保守返回 true，把金币是否足够的判断放进点击回调。
         // 这样即使当前金币字段不好读，也不会因为误判导致按钮消失。
@@ -87,7 +90,7 @@ internal static class LegendaryForgeFeature
     }
 
     // 尝试花钱把装备升级/重随为传奇品质。
-    private static void TryUpgradeToLegendary(ForgeUnderground forge, InventItem item)
+    private void TryUpgradeToLegendary(ForgeUnderground forge, InventItem item)
     {
         try
         {
@@ -131,7 +134,7 @@ internal static class LegendaryForgeFeature
     }
 
     // 尽量拿到一个不会抛异常的物品描述，供日志排查使用。
-    private static string SafeItemLabel(InventItem item)
+    private string SafeItemLabel(InventItem item)
     {
         try
         {
