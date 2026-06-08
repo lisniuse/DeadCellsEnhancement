@@ -33,12 +33,16 @@ public class ModEntry(ModInfo info) : ModBase(info),
     IOnHeroUpdate
 {
     // 所有功能模块的统一列表。初始化和每帧更新都按这个顺序遍历，新增功能只需在这里追加一项。
+    // 注意：LegendaryForgeFeature 暂时停用。它注入小铸造所 UI 时会让游戏在打开重铸 NPC 的瞬间
+    // 崩溃（moddbg.log 里 "Legendary forge add choice failed: NullReferenceException"，
+    // 随后游戏主循环抛 "Null access .onResize"）。已加入 null 行容器保护，但 onResize 崩溃路径
+    // 需要在能实时调试的环境里验证后再重新启用，先从激活列表移除以保证游戏可玩。
     private static readonly Core.IModFeature[] _features =
     [
         new SpeedInstinctFeature(),
         new HealthGrowthFeature(),
         new PerkLimitFeature(),
-        new LegendaryForgeFeature(),
+        // new LegendaryForgeFeature(),
     ];
 
     // 调试日志路径。Initialize 中根据 ModRoot 设置，指向 coremod/mods/DeadCellsEnhancement/moddbg.log。

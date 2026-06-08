@@ -35,17 +35,27 @@ internal sealed class LegendaryForgeFeature : Core.IModFeature
     {
         var itemFlow = orig(self, item, parent);
 
-        try
+        // 关键修复：不是每一行都会返回有效的行容器。某些行（非武器/不可重铸项）orig 会返回 null，
+        // 在 null 上 new FlowBox / registerChoice 会构造出脱离父级的孤儿控件，
+        // 进而在游戏后续的 onResize 布局遍历里触发 "Null access .onResize" 崩溃。
+        // 只有拿到有效行容器时才追加我们的选项。
+        if (itemFlow != null)
         {
-            AddLegendaryUpgradeChoice(self, item, itemFlow);
-        }
-        catch (Exception ex)
-        {
-            // UI 构建失败时不能影响原版小铸造所，否则会导致打开 NPC 闪退。
-            ModEntry.DebugLog($"Legendary forge add choice failed: {ex.GetType().Name}: {ex.Message}");
+            try
+            {
+                AddLegendaryUpgradeChoice(self, item, itemFlow);
+            }
+            catch (Exception ex)
+            {
+                // UI 构建失败时不能影响原版小铸造所，否则会导致打开 NPC 闪退。
+                // 记录完整堆栈，方便定位是哪一步（FlowBox/Text/registerChoice）抛的异常。
+                ModEntry.DebugLog($"Legendary forge add choice failed: {ex}");
+            }
         }
 
-        return itemFlow;
+        // orig 的返回类型标注为非空，但运行时可能为 null；这里原样返回它（含 null），
+        // 用 null-forgiving 仅抑制静态告警，行为与原版 addItem 一致。
+        return itemFlow!;
     }
 
     // 在指定装备行里追加“升级为随机金色品质”选项，并注册到小铸造所的选择系统。
