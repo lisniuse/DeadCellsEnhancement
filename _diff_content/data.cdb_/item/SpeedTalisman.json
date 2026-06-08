@@ -1,0 +1,31 @@
+{
+  "id": "SpeedTalisman",
+  "name": "Speed Talisman",
+  "gameplayDesc": "Legacy compatibility item. This talisman is kept only so old saves that already contain it can load safely.",
+  "ambiantDesc": "An old charm whose power has faded. Its instinct now lives on as a mutation.",
+  "moneyCost": 5000,
+  "cellCost": 0,
+  "castCD": 0,
+  "droppable": false,
+  "tags": [
+    {
+      "tag": "NoDamage"
+    }
+  ],
+  "legendAffixes": [],
+  "synergy": [],
+  "commonProps": {
+    "actcdr": 0.3
+  },
+  "props": {},
+  "group": 7,
+  "icon": {
+    "x": 8,
+    "y": 5,
+    "file": "cardIcons.png",
+    "size": 24
+  },
+  "__separator_group_Name": "Talisman",
+  "__separator_group_ID": 0,
+  "__original_Index": 0
+}

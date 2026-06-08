@@ -121,6 +121,9 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 配置变化后设置为 true，让 OnHeroUpdate 在下一帧尝试把新参数套到已缓存武器上。
     private static bool _pendingReapplyWeapons;
 
+    // 装备刷新剩余次数。武器实例有时不会在一次 onEquipedItemsChange 后立刻完全重建，所以连续几帧补刷。
+    private static int _pendingWeaponRefreshFrames;
+
     // ModCore 加载 Mod 时调用的初始化函数。
     public override void Initialize()
     {
@@ -202,6 +205,14 @@ public class ModEntry(ModInfo info) : ModBase(info),
         {
             _pendingReapplyWeapons = false;
             ReapplyKnownWeaponItems(hero, "state/config changed");
+        }
+
+        // 如果刚发生过加成变化或恢复，连续几帧要求游戏刷新当前装备武器。
+        // 这能处理“数据已经恢复，但当前手持 Weapon 实例还保留旧攻速”的情况。
+        if (_pendingWeaponRefreshFrames > 0)
+        {
+            _pendingWeaponRefreshFrames--;
+            ForceRefreshEquippedWeapons(hero, $"pending refresh frames left={_pendingWeaponRefreshFrames}");
         }
 
         // 只有变异选择状态发生变化时才写日志，避免每帧刷屏。
@@ -464,7 +475,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
                 if (RestoreWeaponItem(item, reason)) restored++;
             }
 
-            ForceRefreshEquippedWeapons(hero);
+            RequestWeaponRefresh(hero, "restore");
             DebugLog($"Restored cached weapons: count={restored}, reason={reason}");
             return;
         }
@@ -476,9 +487,19 @@ public class ModEntry(ModInfo info) : ModBase(info),
         }
 
         // 通知游戏装备数据已经变化，尽量让当前手持武器不需要手动切换也能刷新。
-        ForceRefreshEquippedWeapons(hero);
+        RequestWeaponRefresh(hero, "apply");
 
         DebugLog($"Reapplied speed bonus to cached weapons: count={reapplied}, reason={reason}, bonus={_currentSpeedBonus:P0}");
+    }
+
+    // 请求刷新当前装备武器，并安排后续几帧继续补刷。
+    private static void RequestWeaponRefresh(Hero hero, string reason)
+    {
+        // 立即刷一次，尽量让玩家不需要手动切武器。
+        ForceRefreshEquippedWeapons(hero, reason);
+
+        // 再安排后续几帧补刷，覆盖游戏内部延迟重建武器实例的情况。
+        _pendingWeaponRefreshFrames = 5;
     }
 
     // 把某个玩家武器物品恢复到最初缓存的攻击段字段值。
@@ -542,7 +563,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
     }
 
     // 尝试让游戏刷新当前装备武器。配置热加载后仅改 InventItem 数据不一定会影响已创建的 Weapon 实例。
-    private static void ForceRefreshEquippedWeapons(Hero hero)
+    private static void ForceRefreshEquippedWeapons(Hero hero, string reason)
     {
         try
         {
@@ -561,8 +582,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
                 new Ref<bool>(ref duringHeroInit),
                 new Ref<bool>(ref duringItemTransform));
 
-            DebugLog("Requested hero.onEquipedItemsChange after speed config change.");
-            return;
+            DebugLog($"Requested hero.onEquipedItemsChange after speed config change: {reason}.");
         }
         catch (Exception ex)
         {
@@ -576,7 +596,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
             hero.weaponsManager.onEquippedItemsUpdated(new Ref<bool>(ref duringHeroInit));
             hero.weaponsManager.updateWeapon(0);
             hero.weaponsManager.updateWeapon(1);
-            DebugLog("Requested weaponsManager refresh after speed config change.");
+            DebugLog($"Requested weaponsManager refresh after speed config change: {reason}.");
         }
         catch (Exception ex)
         {
