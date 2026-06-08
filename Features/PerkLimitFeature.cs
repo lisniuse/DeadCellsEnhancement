@@ -30,6 +30,7 @@ internal static class PerkLimitFeature
         Hook_PrGame.loadMainLevel += Hook_Game_loadMainLevel;
         Hook_Hero.onLevelChanged += Hook_Hero_onLevelChanged;
         Hook_PerkSelect.getMaxPerksHere += Hook_PerkSelect_getMaxPerksHere;
+        Hook_PerkSelect.requirementsOk += Hook_PerkSelect_requirementsOk;
         Hook_PerkMaster.onActivate += Hook_PerkMaster_onActivate;
         Hook_PerkMaster.getAvailablePerks += Hook_PerkMaster_getAvailablePerks;
         ModEntry.DebugLog($"PerkLimitFeature initialized: MaxPerks={MaxPerks}.");
@@ -77,6 +78,29 @@ internal static class PerkLimitFeature
             ModEntry.DebugLog($"PerkSelect max perks hook failed: {ex.GetType().Name}: {ex.Message}");
             return GetMaxPerksAllowedThisVisit();
         }
+    }
+
+    // 变异选择 UI 会调用这个函数判断某个变异是否满足选择条件。
+    // 本 Mod 的两个变异都依赖 Boss 细胞难度：0 细胞时效果为 0，所以直接禁止选择，避免玩家拿到“空效果”变异。
+    private static bool Hook_PerkSelect_requirementsOk(Hook_PerkSelect.orig_requirementsOk orig, PerkSelect self, dc.String k)
+    {
+        var originalOk = orig(self, k);
+        if (!originalOk) return false;
+
+        var mutationId = k.ToString();
+        if (!IsBossCellLockedMutation(mutationId)) return true;
+
+        var hero = Game.Instance.HeroInstance;
+        if (hero == null) return false;
+
+        var bossCells = ModEntry.GetEffectiveBossCells(hero);
+        var allowed = bossCells > 0;
+        if (!allowed)
+        {
+            ModEntry.DebugLog($"Perk requirement blocked at 0 boss cells: mutation={mutationId}, bossCells={bossCells}");
+        }
+
+        return allowed;
     }
 
     // 和收藏家/变异 NPC 交互时，记录“这次安全屋开始时已有几个变异”。
@@ -192,5 +216,12 @@ internal static class PerkLimitFeature
         {
             return 0;
         }
+    }
+
+    // 判断是否是本 Mod 中需要 1 细胞以上才允许选择的变异。
+    private static bool IsBossCellLockedMutation(string mutationId)
+    {
+        return mutationId == SpeedInstinctFeature.MutationId
+            || mutationId == HealthGrowthFeature.MutationId;
     }
 }
