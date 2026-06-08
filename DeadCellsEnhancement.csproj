@@ -4,9 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ModName>SpeedTalisman</ModName>
+    <ModName>DeadCellsEnhancement</ModName>
     <ModType>mod</ModType>
-    <ModMain>SpeedTalisman.ModEntry</ModMain>
+    <ModMain>DeadCellsEnhancement.ModEntry</ModMain>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateSinglePakFile>true</GenerateSinglePakFile>
     <GenerateDiffCDB>false</GenerateDiffCDB>

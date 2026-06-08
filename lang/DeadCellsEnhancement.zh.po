@@ -1,16 +1,16 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: SpeedTalisman\n"
-"Language: en\n"
+"Project-Id-Version: DeadCellsEnhancement\n"
+"Language: zh\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
 msgid "Speed Instinct"
-msgstr "Speed Instinct"
+msgstr "迅捷本能"
 
 msgid "Only while this mutation is selected, weapon attack speed increases with active Boss Cells: 0 cells +0%, 1 cell +20%, 2 cells +30%, 3-4 cells +40%, 5 cells +50%."
-msgstr "Only while this mutation is selected, weapon attack speed increases with active Boss Cells: 0 cells +0%, 1 cell +20%, 2 cells +30%, 3-4 cells +40%, 5 cells +50%."
+msgstr "只有选择这项变异时，武器攻击速度才会随已激活 Boss 细胞提高：0 细胞 +0%，1 细胞 +20%，2 细胞 +30%，3-4 细胞 +40%，5 细胞 +50%。"
 
 msgid "The harsher the island becomes, the faster your hands remember how to survive."
-msgstr "The harsher the island becomes, the faster your hands remember how to survive."
+msgstr "岛屿越险恶，你的双手就越快想起该如何活下去。"

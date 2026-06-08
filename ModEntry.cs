@@ -3,6 +3,8 @@ using dc;
 using dc.en;
 using dc.tool;
 using dc.tool.mod;
+using DcPrGame = dc.pr.Game;
+using Hook_PrGame = dc.pr.Hook_Game;
 
 // Hashlink 代理对象接口：用于读取/写入游戏对象里没有直接暴露成 C# 属性的动态字段。
 using Hashlink.Proxy.Objects;
@@ -26,7 +28,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 // 本 Mod 的命名空间，必须和 csproj 里的 ModMain 保持一致。
-namespace SpeedTalisman;
+namespace DeadCellsEnhancement;
 
 // ModEntry 是这个 Mod 的入口类。
 // ModBase 提供 Info、Logger 等基础能力。
@@ -82,7 +84,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 当前生效的攻速加成，只有选择迅捷变异时才大于 0。
     private static double _currentSpeedBonus;
 
-    // 调试日志路径。Initialize 中根据 ModRoot 设置，指向 coremod/mods/SpeedTalisman/moddbg.log。
+    // 调试日志路径。Initialize 中根据 ModRoot 设置，指向 coremod/mods/DeadCellsEnhancement/moddbg.log。
     private static string? _debugLogPath;
 
     // 调试热加载配置文件路径。正式发布时没有这个文件；存在时优先使用它的 SpeedLevel 档位。
@@ -102,6 +104,18 @@ public class ModEntry(ModInfo info) : ModBase(info),
 
     // 记录上一次变异检测使用的来源，避免每帧重复写相同日志。
     private static string? _lastDetectionSource;
+
+    // 记录上一次写入日志的 Boss 细胞读取结果，避免每帧重复刷同样的细胞数。
+    private static int? _lastLoggedBossCells;
+
+    // 记录上一次 Boss 细胞读取来源。数值相同但来源变化时也写日志，方便排查正式模式读错字段。
+    private static string? _lastLoggedBossCellSource;
+
+    // 当前正在运行的原游戏 dc.pr.Game 实例。Hero 身上不稳定暴露 user，所以从 Game.init 缓存更可靠。
+    private static DcPrGame? _currentPrGame;
+
+    // 当前 Boss 细胞数是从哪个字段读到的。LogBossCellsIfChanged 会把它写进日志。
+    private static string _currentBossCellSource = "not read yet";
 
     // 武器创建 hook 日志计数器。武器创建可能很频繁，所以只记录前几次，避免日志刷屏。
     private static int _weaponHookLogCount;
@@ -139,11 +153,11 @@ public class ModEntry(ModInfo info) : ModBase(info),
         // 立即读取一次调试配置；文件不存在时会自动进入正式模式。
         ReloadConfigIfChanged(force: true);
 
-        // 注册本 Mod 的语言包名字。GetText 会按 lang/SpeedTalisman.<lang>.mo 查找翻译。
-        GetText.Instance.RegisterMod("SpeedTalisman");
+        // 注册本 Mod 的语言包名字。GetText 会按 lang/DeadCellsEnhancement.<lang>.mo 查找翻译。
+        GetText.Instance.RegisterMod("DeadCellsEnhancement");
 
         // 写入 Core 的 Serilog 日志，便于在 coremod/logs/log_latest.log 中排查。
-        Logger.Information("SpeedTalisman initialized.");
+        Logger.Information("DeadCellsEnhancement initialized.");
 
         // 获取 Hashlink hook 管理器实例，用它来拦截游戏里的 Haxe/Hashlink 函数。
         var hooks = HashlinkHooks.Instance;
@@ -151,6 +165,30 @@ public class ModEntry(ModInfo info) : ModBase(info),
         // 拦截 tool.$Weapon.create：每次游戏根据 InventItem 创建 Weapon 时，都会先进入 Hook_create。
         // 这样可以在武器对象刚创建出来时修改它的 strikeChain 攻击参数。
         hooks.CreateHook("tool.$Weapon", "create", Hook_WeaponCreate.Hook_create).Enable();
+
+        // 记录原游戏 pr.Game 实例。正式模式的 Boss Cell 数在 game.user.bossRuneActivated 上最稳定。
+        Hook_PrGame.init += Hook_PrGame_init;
+        Hook_PrGame.onDispose += Hook_PrGame_onDispose;
+    }
+
+    // 原游戏 dc.pr.Game 初始化时调用；缓存 self，之后读取正式 Boss Cell 难度使用它。
+    private static void Hook_PrGame_init(Hook_PrGame.orig_init orig, DcPrGame self)
+    {
+        _currentPrGame = self;
+        DebugLog("Captured dc.pr.Game instance for production boss-cell scaling.");
+        orig(self);
+    }
+
+    // 原游戏 dc.pr.Game 销毁时调用；如果销毁的是当前缓存实例，就清空引用，避免下局读到旧对象。
+    private static void Hook_PrGame_onDispose(Hook_PrGame.orig_onDispose orig, DcPrGame self)
+    {
+        if (ReferenceEquals(_currentPrGame, self))
+        {
+            _currentPrGame = null;
+            DebugLog("Cleared cached dc.pr.Game instance.");
+        }
+
+        orig(self);
     }
 
     // 游戏资源加载完成后调用。这里加载本 Mod 打包出的 res.pak。
@@ -166,7 +204,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
         DebugLog($"Loaded res.pak: {pakPath}");
 
         // 写入 Core 日志，和 DebugLog 互相补充。
-        Logger.Information("Loaded SpeedTalisman resources from {0}", pakPath);
+        Logger.Information("Loaded DeadCellsEnhancement resources from {0}", pakPath);
     }
 
     // 英雄每帧更新时调用。dt 是距离上一帧经过的秒数。
@@ -341,6 +379,9 @@ public class ModEntry(ModInfo info) : ModBase(info),
             ? System.Math.Clamp(_debugBossCells, 0, 5)
             : System.Math.Max(0, GetCurrentBossCells(hero));
 
+        // 细胞数来源影响最终加成，写一次变化日志方便确认正式模式是否读到了真实难度。
+        LogBossCellsIfChanged(bossCells);
+
         // 正式模式下 0 细胞没有任何加成，直接返回 0，ModifyWeaponStats 会因此完全跳过。
         // 调试模式下 SpeedLevel = 0 也同样没有任何加成，方便和原版手感做 A/B 对比。
         if (bossCells <= 0) return 0;
@@ -382,36 +423,151 @@ public class ModEntry(ModInfo info) : ModBase(info),
     {
         try
         {
+            // 最可靠路径：pr.Game.user.bossRuneActivated。
+            // core 日志死亡结算里的 "bossRune" 就来自这个用户运行数据。
+            if (TryReadBossCellsFromGame(_currentPrGame, out var gameBossCells, out var gameSource))
+            {
+                _currentBossCellSource = gameSource;
+                return gameBossCells;
+            }
+
             // 读取英雄底层 Hashlink 字段。
             var heroFields = hero.HashlinkObj as IHashlinkFieldObject;
+
+            // 某些运行阶段 Hero 的动态字段里也可能挂着 pr.Game；有就作为第二优先级读取。
+            foreach (var gameFieldName in new[] { "game", "_game" })
+            {
+                try
+                {
+                    if (heroFields?.GetFieldValue(gameFieldName) is DcPrGame heroGame
+                        && TryReadBossCellsFromGame(heroGame, out var heroGameBossCells, out var heroGameSource))
+                    {
+                        _currentPrGame = heroGame;
+                        _currentBossCellSource = $"hero.{gameFieldName}->{heroGameSource}";
+                        return heroGameBossCells;
+                    }
+                }
+                catch
+                {
+                    // 字段不存在或当前阶段不可读时，继续尝试其它来源。
+                }
+            }
 
             // _user 保存玩家存档/运行状态数据。
             var user = heroFields?.GetFieldValue("_user") as IHashlinkFieldObject;
 
-            // bossRuneActivated 是原游戏里表示当前 Boss Cell 的字段。
-            var bossRuneActivated = user?.GetFieldValue("bossRuneActivated");
-
-            // 根据实际返回类型做兼容转换；不同代理/字段可能返回 int、double 或 float。
-            return bossRuneActivated switch
+            // 不同运行阶段/游戏版本里，Boss Cell 字段名字不完全一致。
+            // 日志里能看到存档摘要字段叫 bossRune；旧探测用过 bossRuneActivated。
+            // 这里按多个候选字段依次读取，读到第一个有效数值就返回。
+            foreach (var fieldName in new[] { "bossRuneActivated", "bossRune", "_bossRune", "difficulty" })
             {
-                // 字段已经是 int 时直接返回。
-                int value => value,
+                if (TryReadIntField(user, fieldName, out var userValue))
+                {
+                    _currentBossCellSource = $"hero._user.{fieldName}";
+                    return userValue;
+                }
 
-                // 字段是 double 时取整数部分。
-                double value => (int)value,
+                if (TryReadIntField(heroFields, fieldName, out var heroValue))
+                {
+                    _currentBossCellSource = $"hero.{fieldName}";
+                    return heroValue;
+                }
+            }
 
-                // 字段是 float 时取整数部分。
-                float value => (int)value,
-
-                // 读不到或类型不认识时，默认 0 细胞。
-                _ => 0
-            };
+            // 读不到任何候选字段时，默认 0 细胞。
+            _currentBossCellSource = "not found, fallback 0";
+            return 0;
         }
         catch
         {
             // 读取失败时默认 0 细胞，不让异常影响游戏。
+            _currentBossCellSource = "read failed, fallback 0";
             return 0;
         }
+    }
+
+    // 从原游戏 pr.Game 上读取 Boss Cell 数。直接读强类型属性，比猜 Hashlink 动态字段稳定。
+    private static bool TryReadBossCellsFromGame(DcPrGame? game, out int bossCells, out string source)
+    {
+        bossCells = 0;
+        source = "game missing";
+        if (game == null) return false;
+
+        try
+        {
+            var user = game.user;
+            if (user != null)
+            {
+                bossCells = user.bossRuneActivated;
+                source = "game.user.bossRuneActivated";
+                return true;
+            }
+        }
+        catch
+        {
+            // 有些加载阶段 user 可能暂时为空或 Hashlink 访问失败，继续尝试 data.sUser。
+        }
+
+        try
+        {
+            var savedUser = game.data?.sUser;
+            if (savedUser != null)
+            {
+                bossCells = savedUser.bossRuneActivated;
+                source = "game.data.sUser.bossRuneActivated";
+                return true;
+            }
+        }
+        catch
+        {
+            // 两条强类型路径都失败时，交给调用方走旧动态字段兜底。
+        }
+
+        source = "game user fields unavailable";
+        return false;
+    }
+
+    // 尝试从 Hashlink 字段对象里读取一个整数型配置字段。
+    private static bool TryReadIntField(IHashlinkFieldObject? fields, string fieldName, out int value)
+    {
+        value = 0;
+        if (fields == null) return false;
+
+        try
+        {
+            var rawValue = fields.GetFieldValue(fieldName);
+            switch (rawValue)
+            {
+                case int intValue:
+                    value = intValue;
+                    return true;
+
+                case double doubleValue:
+                    value = (int)doubleValue;
+                    return true;
+
+                case float floatValue:
+                    value = (int)floatValue;
+                    return true;
+            }
+        }
+        catch
+        {
+            // 字段不存在或类型无法读取时，交给下一个候选字段继续尝试。
+        }
+
+        return false;
+    }
+
+    // Boss 细胞读取结果变化时写日志。
+    private static void LogBossCellsIfChanged(int bossCells)
+    {
+        if (_lastLoggedBossCells == bossCells && _lastLoggedBossCellSource == _currentBossCellSource) return;
+        _lastLoggedBossCells = bossCells;
+        _lastLoggedBossCellSource = _currentBossCellSource;
+        DebugLog(_usingDebugConfig
+            ? $"Boss cells for speed bonus: debug SpeedLevel={bossCells}"
+            : $"Boss cells for speed bonus: production bossCells={bossCells}, source={_currentBossCellSource}");
     }
 
     // 修改刚创建出来的武器攻击参数。Hook_WeaponCreate 会调用这个函数。
@@ -889,7 +1045,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
 
             // 读取并解析 JSON。解析失败会进入 catch，保留上一组有效配置。
             var json = System.IO.File.ReadAllText(_configPath);
-            var config = JsonSerializer.Deserialize<SpeedTalismanConfig>(json);
+            var config = JsonSerializer.Deserialize<EnhancementDebugConfig>(json);
             if (config == null) return;
 
             // SpeedLevel 是唯一需要手动编辑的参数；范围固定在 0 到 5，数值对应“模拟几细胞”。
@@ -964,7 +1120,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
 }
 
 // 热加载配置文件的数据结构。属性名会原样写入 speed_config.json。
-internal sealed class SpeedTalismanConfig
+internal sealed class EnhancementDebugConfig
 {
     // 攻速档位：0-5，对应模拟 0-5 Boss 细胞。
     public int SpeedLevel { get; set; } = 0;
