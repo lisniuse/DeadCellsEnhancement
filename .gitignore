@@ -1,0 +1,8 @@
+bin/
+obj/
+_repak/
+_verify_expanded/
+*.bak
+*.pak
+*.log
+debug_speed_config.json

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ModName>SpeedTalisman</ModName>
+    <ModType>mod</ModType>
+    <ModMain>SpeedTalisman.ModEntry</ModMain>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateSinglePakFile>true</GenerateSinglePakFile>
+    <GenerateDiffCDB>false</GenerateDiffCDB>
+    <GameVersion>35</GameVersion>
+    <AutoInstallMod>true</AutoInstallMod>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DeadCellsCoreModding.MDK" Version="1.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackAssets Include="_diff_content/**/*" RootInPak="" />
+    <PackAssets Include="lang/*.mo" RootInPak="lang" />
+  </ItemGroup>
+
+  <Target Name="EnsurePackAssetsNotEmpty" BeforeTargets="PackAssetsIntoPak">
+    <PropertyGroup>
+      <_EmptyPackFile>$(IntermediateOutputPath)_empty_pack_asset.bin</_EmptyPackFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_EmptyPackFile)" Lines="" Overwrite="true" />
+    <ItemGroup Condition="'@(PackAssets)' == ''">
+      <PackAssets Include="$(_EmptyPackFile)" RootInPak="" />
+    </ItemGroup>
+  </Target>
+
+</Project>
