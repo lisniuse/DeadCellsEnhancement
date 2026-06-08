@@ -46,11 +46,11 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 正式模式基础攻速加成：0 表示 0 细胞时完全没有加成，直接绕过武器修改。
     private const double DefaultBaseSpeedBonus = 0.00;
 
-    // 正式模式每个已激活 Boss 细胞额外增加的攻速加成：0.10 表示每个 Boss Cell 增加 10%。
-    private const double DefaultBonusPerBossCell = 0.10;
+    // 旧版线性档位参数保留为日志字段使用；真实加成现在统一走 GetSpeedBonusForBossCells 的明确档位表。
+    private const double DefaultBonusPerBossCell = 0.00;
 
-    // 默认最大攻速加成上限：0.35 表示最多把相关时间参数缩短 35%，防止手感过快或接近 0CD。
-    private const double DefaultMaxSpeedBonus = 0.35;
+    // 默认最大攻速加成上限：0.50 表示最多把相关时间参数缩短 50%。
+    private const double DefaultMaxSpeedBonus = 0.50;
 
     // 默认动画速度加成缩放。时间字段已经缩短一次，动画速度再完整叠加会显得过快，所以这里只吃一半加成。
     private const double DefaultAnimationSpeedBonusScale = 0.50;
@@ -447,8 +447,36 @@ public class ModEntry(ModInfo info) : ModBase(info),
         // 调试模式下 SpeedLevel = 0 也同样没有任何加成，方便和原版手感做 A/B 对比。
         if (bossCells <= 0) return 0;
 
-        // 最终加成 = 基础加成 + Boss Cell 数量 * 每细胞加成，并限制到最大加成。
-        return System.Math.Min(_baseSpeedBonus + bossCells * _bonusPerBossCell, _maxSpeedBonus);
+        // 最终加成按明确档位表计算，避免线性公式和测试直觉不一致。
+        return GetSpeedBonusForBossCells(bossCells);
+    }
+
+    // 把 Boss 细胞数或调试 SpeedLevel 映射成真正的攻速加成。
+    private static double GetSpeedBonusForBossCells(int bossCells)
+    {
+        // 先把输入夹在 0-5，防止异常存档值或手写配置值越界。
+        var clampedBossCells = System.Math.Clamp(bossCells, 0, 5);
+
+        // 档位表：
+        // 0 细胞 = 0%，完全不修改武器。
+        // 1 细胞 = 20%，开始有明显但不夸张的加速。
+        // 2 细胞 = 30%，比 1 细胞再快一档。
+        // 3 细胞 = 40%，这里补齐用户未写的 3 档，让它和 4 细胞同档。
+        // 4 细胞 = 40%，保持高难度但不继续膨胀。
+        // 5 细胞 = 50%，最高难度给最明显加成。
+        var speedBonus = clampedBossCells switch
+        {
+            0 => 0.00,
+            1 => 0.20,
+            2 => 0.30,
+            3 => 0.40,
+            4 => 0.40,
+            5 => 0.50,
+            _ => 0.00
+        };
+
+        // 仍然套一层最大值保护，方便以后只改上限也能整体压住手感。
+        return System.Math.Min(speedBonus, _maxSpeedBonus);
     }
 
     // 从玩家 user 数据中读取当前激活的 Boss 细胞数量。
@@ -927,10 +955,11 @@ public class ModEntry(ModInfo info) : ModBase(info),
         _useWorkshopMaxSpeedTest = false;
         _workshopAnimSpeedFloor = DefaultWorkshopAnimSpeedFloor;
 
-        // 0 细胞没有加成；1-3 细胞每级 10%；4-5 细胞受 35% 上限保护。
+        // 调试模式和正式模式共用同一张档位表：
+        // 0=0%，1=20%，2=30%，3=40%，4=40%，5=50%。
         _baseSpeedBonus = 0.00;
-        _bonusPerBossCell = 0.10;
-        _maxSpeedBonus = 0.35;
+        _bonusPerBossCell = 0.00;
+        _maxSpeedBonus = 0.50;
         _debugBossCells = speedLevel;
 
         // 0 细胞没有动画加成；其他档位动画速度吃一半加成，避免体感过快。
