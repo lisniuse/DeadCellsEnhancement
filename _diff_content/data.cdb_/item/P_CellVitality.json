@@ -13,8 +13,8 @@
   "castCD": 0,
   "id": "P_CellVitality",
   "icon": {
-    "x": 4,
-    "y": 18,
+    "x": 87,
+    "y": 0,
     "file": "cardIcons.png",
     "size": 24
   },

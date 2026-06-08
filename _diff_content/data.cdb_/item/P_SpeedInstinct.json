@@ -13,8 +13,8 @@
   "castCD": 0,
   "id": "P_SpeedInstinct",
   "icon": {
-    "x": 3,
-    "y": 18,
+    "x": 86,
+    "y": 0,
     "file": "cardIcons.png",
     "size": 24
   },

@@ -6,3 +6,5 @@ _verify_expanded/
 *.pak
 *.log
 debug_speed_config.json
+source_*_icon.png
+*.preview.png
