@@ -7,6 +7,7 @@
 ## 功能列表
 
 - 迅捷本能：按 Boss 细胞数提高武器攻击速度。
+- 细胞活力：选择变异后，每击杀一个敌人，最大生命值增加 `当前 Boss 细胞数 x 100`；0 细胞不生效。
 
 ## 调试配置
 
@@ -33,5 +34,7 @@
 
 - MOD 名称：`DeadCellsEnhancement`
 - 入口类：`DeadCellsEnhancement.ModEntry`
+- 功能目录：`Features/`
+- 公共结构目录：`Core/`
 - 语言包：`lang/DeadCellsEnhancement.zh.mo`、`lang/DeadCellsEnhancement.en.mo`
 - 调试日志：已安装 MOD 目录下的 `moddbg.log`

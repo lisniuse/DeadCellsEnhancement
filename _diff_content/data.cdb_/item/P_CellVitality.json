@@ -1,0 +1,30 @@
+{
+  "commonProps": {
+    "customScaling": 0.01
+  },
+  "synergy": [],
+  "props": {
+    "prct": 0.2,
+    "duration": 2
+  },
+  "gameplayDesc": "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus.",
+  "moneyCost": 0,
+  "group": 12,
+  "castCD": 0,
+  "id": "P_CellVitality",
+  "icon": {
+    "x": 4,
+    "y": 18,
+    "file": "cardIcons.png",
+    "size": 24
+  },
+  "legendAffixes": [],
+  "name": "Cell Vitality",
+  "droppable": true,
+  "tags": [],
+  "tier1": "Survival",
+  "cellCost": 0,
+  "__separator_group_Name": "Perk",
+  "__separator_group_ID": 0,
+  "__original_Index": 0
+}

@@ -14,3 +14,9 @@ msgstr "Only while this mutation is selected, weapon attack speed increases with
 
 msgid "The harsher the island becomes, the faster your hands remember how to survive."
 msgstr "The harsher the island becomes, the faster your hands remember how to survive."
+
+msgid "Cell Vitality"
+msgstr "Cell Vitality"
+
+msgid "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus."
+msgstr "Only while this mutation is selected, each enemy killed increases maximum health by active Boss Cells x 100. At 0 cells, it grants no bonus."
