@@ -42,7 +42,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
         new SpeedInstinctFeature(),
         new HealthGrowthFeature(),
         new PerkLimitFeature(),
-        // new LegendaryForgeFeature(),
+        new LegendaryForgeFeature(),
     ];
 
     // 调试日志路径。Initialize 中根据 ModRoot 设置，指向 coremod/mods/DeadCellsEnhancement/moddbg.log。
