@@ -94,6 +94,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
         SpeedInstinctFeature.Initialize(HashlinkHooks.Instance);
         HealthGrowthFeature.Initialize();
         PerkLimitFeature.Initialize();
+        LegendaryForgeFeature.Initialize();
     }
 
     // 原游戏 dc.pr.Game 初始化时调用；缓存 self，之后读取正式 Boss Cell 难度使用它。
