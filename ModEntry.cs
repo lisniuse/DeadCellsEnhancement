@@ -93,6 +93,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
         // 初始化各个独立功能模块。后续新增功能时优先放到 Features 目录，不继续塞进 ModEntry。
         SpeedInstinctFeature.Initialize(HashlinkHooks.Instance);
         HealthGrowthFeature.Initialize();
+        PerkLimitFeature.Initialize();
     }
 
     // 原游戏 dc.pr.Game 初始化时调用；缓存 self，之后读取正式 Boss Cell 难度使用它。
