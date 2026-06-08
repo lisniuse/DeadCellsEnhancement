@@ -6,11 +6,11 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "Speed Talisman"
-msgstr "迅捷护符"
+msgid "Speed Instinct"
+msgstr "迅捷本能"
 
-msgid "Equipping this talisman increases weapon attack speed and shortens attack recovery. The bonus grows with active Boss Cells."
-msgstr "装备后提高武器攻击速度，并缩短攻击后的硬直时间。已激活的 Boss 细胞越多，加成越高。"
+msgid "Only while this mutation is selected, weapon attack speed increases with active Boss Cells: 0 cells +0%, 1 cell +20%, 2 cells +30%, 3-4 cells +40%, 5 cells +50%."
+msgstr "只有选择这项变异时，武器攻击速度才会随已激活 Boss 细胞提高：0 细胞 +0%，1 细胞 +20%，2 细胞 +30%，3-4 细胞 +40%，5 细胞 +50%。"
 
-msgid "A little charm humming with impatient power. The more hostile the island becomes, the faster it urges your hands to move."
-msgstr "一枚躁动不安的小护符。岛屿越危险，它就越急切地催促你的双手加快动作。"
+msgid "The harsher the island becomes, the faster your hands remember how to survive."
+msgstr "岛屿越险恶，你的双手就越快想起该如何活下去。"

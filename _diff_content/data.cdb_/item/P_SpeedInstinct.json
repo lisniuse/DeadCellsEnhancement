@@ -1,0 +1,25 @@
+{
+  "id": "P_SpeedInstinct",
+  "name": "Speed Instinct",
+  "gameplayDesc": "Only while this mutation is selected, weapon attack speed increases with active Boss Cells: 0 cells +0%, 1 cell +20%, 2 cells +30%, 3-4 cells +40%, 5 cells +50%.",
+  "ambiantDesc": "The harsher the island becomes, the faster your hands remember how to survive.",
+  "moneyCost": 0,
+  "cellCost": 0,
+  "castCD": 0,
+  "droppable": true,
+  "tags": [],
+  "legendAffixes": [],
+  "synergy": [],
+  "commonProps": {},
+  "props": {},
+  "group": 12,
+  "icon": {
+    "x": 3,
+    "y": 18,
+    "file": "cardIcons.png",
+    "size": 24
+  },
+  "__separator_group_Name": "Perk",
+  "__separator_group_ID": 0,
+  "__original_Index": 0
+}

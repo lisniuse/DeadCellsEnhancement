@@ -6,11 +6,11 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "Speed Talisman"
-msgstr "Speed Talisman"
+msgid "Speed Instinct"
+msgstr "Speed Instinct"
 
-msgid "Equipping this talisman increases weapon attack speed and shortens attack recovery. The bonus grows with active Boss Cells."
-msgstr "Equipping this talisman increases weapon attack speed and shortens attack recovery. The bonus grows with active Boss Cells."
+msgid "Only while this mutation is selected, weapon attack speed increases with active Boss Cells: 0 cells +0%, 1 cell +20%, 2 cells +30%, 3-4 cells +40%, 5 cells +50%."
+msgstr "Only while this mutation is selected, weapon attack speed increases with active Boss Cells: 0 cells +0%, 1 cell +20%, 2 cells +30%, 3-4 cells +40%, 5 cells +50%."
 
-msgid "A little charm humming with impatient power. The more hostile the island becomes, the faster it urges your hands to move."
-msgstr "A little charm humming with impatient power. The more hostile the island becomes, the faster it urges your hands to move."
+msgid "The harsher the island becomes, the faster your hands remember how to survive."
+msgstr "The harsher the island becomes, the faster your hands remember how to survive."

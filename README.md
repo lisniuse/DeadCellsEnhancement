@@ -1,8 +1,8 @@
 # SpeedTalisman
 
-Dead Cells Core Modding mod that adds a Speed Talisman.
+Dead Cells Core Modding mod that adds a Speed Instinct mutation.
 
-When equipped, the talisman increases weapon attack speed by modifying weapon strike timing data at runtime.
+When selected, the mutation increases weapon attack speed by modifying weapon strike timing data at runtime. The effect is disabled unless the player has selected the mutation.
 
 ## Development debug config
 

@@ -1,14 +1,13 @@
 // Dead Cells 原始游戏代理命名空间：提供 Game、Hero、Weapon、InventItem 等游戏对象的 C# 代理。
 using dc;
 using dc.en;
-using dc.en.inter;
 using dc.tool;
 using dc.tool.mod;
 
 // Hashlink 代理对象接口：用于读取/写入游戏对象里没有直接暴露成 C# 属性的动态字段。
 using Hashlink.Proxy.Objects;
 
-// HaxeProxy 运行时工具：Ref<T> 用于传递 Haxe 侧的引用参数。
+// HaxeProxy 运行时工具：Ref<T> 用于调用需要 Haxe 引用参数的游戏函数。
 using HaxeProxy.Runtime;
 
 // ModCore 事件接口：让本 Mod 接收“资源加载后”和“英雄每帧更新”等生命周期事件。
@@ -37,11 +36,8 @@ public class ModEntry(ModInfo info) : ModBase(info),
     IOnAfterLoadingAssets,
     IOnHeroUpdate
 {
-    // CDB 里新增护符的 id。创建 InventItem 和判断装备时都用这个 id 匹配。
-    private const string TalismanId = "SpeedTalisman";
-
-    // 死神镰刀的原版物品 id。数据库里这把武器叫 AdeleScythe，对应游戏里的“Death's Scythe/死神镰刀”。
-    private const string TestWeaponId = "AdeleScythe";
+    // CDB 里新增变异的 id。判断玩家是否选择本变异时就用这个 id 匹配。
+    private const string SpeedMutationId = "P_SpeedInstinct";
 
     // 正式模式基础攻速加成：0 表示 0 细胞时完全没有加成，直接绕过武器修改。
     private const double DefaultBaseSpeedBonus = 0.00;
@@ -80,17 +76,11 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 当前运行时顶满测试动画速度下限。正式细胞匹配档位不会使用它，保留给以后内部调试使用。
     private static double _workshopAnimSpeedFloor = DefaultWorkshopAnimSpeedFloor;
 
-    // 当前帧检测到玩家是否装备了迅捷护符。
-    private static bool _hasTalismanEquipped;
+    // 当前帧检测到玩家是否选择了本 Mod 的迅捷变异。
+    private static bool _hasSpeedMutation;
 
-    // 当前生效的攻速加成，只有装备迅捷护符时才大于 0。
+    // 当前生效的攻速加成，只有选择迅捷变异时才大于 0。
     private static double _currentSpeedBonus;
-
-    // 是否已经在当前游戏进程里成功处理过出生点掉落，避免每帧无限生成。
-    private static bool _hasSpawnedTalisman;
-
-    // 生成失败后的重试计时器。游戏刚进图时部分对象可能没准备好，所以允许定时重试。
-    private static double _spawnRetryTimer;
 
     // 调试日志路径。Initialize 中根据 ModRoot 设置，指向 coremod/mods/SpeedTalisman/moddbg.log。
     private static string? _debugLogPath;
@@ -110,7 +100,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 配置文件重载计时器。每帧都读文件太浪费，所以按固定间隔检查一次。
     private static double _configReloadTimer;
 
-    // 记录上一次装备检测使用的来源，避免每帧重复写相同日志。
+    // 记录上一次变异检测使用的来源，避免每帧重复写相同日志。
     private static string? _lastDetectionSource;
 
     // 武器创建 hook 日志计数器。武器创建可能很频繁，所以只记录前几次，避免日志刷屏。
@@ -122,7 +112,7 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 攻击段字段修改日志计数器。只记录前几个攻击段，方便确认具体字段是否写入。
     private static int _strikeModifyLogCount;
 
-    // 已经经过 Weapon.create 的玩家武器物品。配置热加载或护符装备状态变化后，会尝试给这些武器重新套用参数。
+    // 已经经过 Weapon.create 的玩家武器物品。配置热加载或变异选择状态变化后，会尝试给这些武器重新套用参数。
     private static readonly System.Collections.Generic.List<InventItem> _knownPlayerWeaponItems = [];
 
     // 每个攻击段字段的原始值缓存。动态调参时必须从原始值重新计算，不能在已缩放结果上反复相乘。
@@ -193,246 +183,143 @@ public class ModEntry(ModInfo info) : ModBase(info),
             ReloadConfigIfChanged(force: false);
         }
 
-        // 递减生成重试计时器。dt 越大，计时器下降越多。
-        _spawnRetryTimer -= dt;
-
-        // 如果还没成功处理出生点掉落，并且重试冷却已经结束，就尝试生成一次。
-        if (!_hasSpawnedTalisman && _spawnRetryTimer <= 0)
-        {
-            // 设置 0.5 秒后才允许下一次重试，避免每帧刷日志或重复构造对象。
-            _spawnRetryTimer = 0.5;
-
-            // 真正执行出生点掉落物创建逻辑。
-            TrySpawnTalisman(hero);
-        }
-
-        // 记录上一帧是否装备了护符，用于判断状态是否发生变化。
-        var wasEquipped = _hasTalismanEquipped;
+        // 记录上一帧是否选择了迅捷变异，用于判断状态是否发生变化。
+        var hadSpeedMutation = _hasSpeedMutation;
 
         // 记录上一帧的加成数值，用于判断配置文件或细胞数导致的加成变化。
         var previousSpeedBonus = _currentSpeedBonus;
 
-        // 重新检测当前英雄是否装备了 id 为 SpeedTalisman 的护符。
-        _hasTalismanEquipped = HasSpeedTalisman(hero);
+        // 重新检测当前英雄是否已经选择了 id 为 P_SpeedInstinct 的变异。
+        _hasSpeedMutation = HasSpeedMutation(hero);
 
-        // 如果装备了护符，计算攻速加成；否则加成为 0。
-        _currentSpeedBonus = _hasTalismanEquipped ? GetSpeedBonus(hero) : 0;
+        // 如果选择了变异，计算攻速加成；否则加成为 0。
+        _currentSpeedBonus = _hasSpeedMutation ? GetSpeedBonus(hero) : 0;
 
-        // 装备状态、加成数值或 debug 配置变化后，尝试把新参数重套到已经见过的玩家武器上。
+        // 变异状态、加成数值或 debug 配置变化后，尝试把新参数重套到已经见过的玩家武器上。
         if (_pendingReapplyWeapons
-            || _hasTalismanEquipped != wasEquipped
+            || _hasSpeedMutation != hadSpeedMutation
             || System.Math.Abs(_currentSpeedBonus - previousSpeedBonus) > 0.0001)
         {
             _pendingReapplyWeapons = false;
             ReapplyKnownWeaponItems(hero, "state/config changed");
         }
 
-        // 只有装备状态发生变化时才写日志，避免每帧刷屏。
-        if (_hasTalismanEquipped != wasEquipped)
+        // 只有变异选择状态发生变化时才写日志，避免每帧刷屏。
+        if (_hasSpeedMutation != hadSpeedMutation)
         {
-            // 记录当前装备状态和计算出的百分比加成。
+            // 记录当前变异状态和计算出的百分比加成。
             Logger.Information(
-                "SpeedTalisman equipped: {0}, speed bonus: {1:P0}",
-                _hasTalismanEquipped,
+                "Speed mutation selected: {0}, speed bonus: {1:P0}",
+                _hasSpeedMutation,
                 _currentSpeedBonus);
         }
     }
 
-    // 尝试在英雄当前位置生成测试掉落物。
-    private void TrySpawnTalisman(Hero hero)
+    // 判断当前英雄是否已经选择了本 Mod 的迅捷变异。
+    private static bool HasSpeedMutation(Hero hero)
     {
-        // 已经成功处理过出生点掉落就直接返回，防止重复掉落。
-        if (_hasSpawnedTalisman) return;
-
+        // 变异在游戏内部也是 InventItem，类型是 Perk；选中后通常会被加入英雄 inventory。
+        // 因此这里优先走 inventory.hasItem(id)，和原版通过物品 id 查询背包内容的方式一致。
         try
         {
-            // 先检查玩家身上是否已经有迅捷护符。有就不再掉新的护符，避免重复刷护符。
-            var alreadyHasTalisman = HasSpeedTalisman(hero);
-
-            // 玩家没有迅捷护符时，才创建一个新的护符掉落在英雄脚下。
-            if (!alreadyHasTalisman)
+            if (hero.inventory != null && hero.inventory.hasItem(SpeedMutationId.AsHaxeString()))
             {
-                // 创建一个游戏背包物品 InventItem，类型是 Talisman，id 是 SpeedTalisman。
-                var talismanItem = new InventItem(new InventItemKind.Talisman(TalismanId.AsHaxeString()));
-
-                // 在英雄脚下生成迅捷护符。
-                SpawnItemDrop(hero, talismanItem, hero.cx, hero.cy);
+                LogDetectionSource($"inventory.hasItem({SpeedMutationId})");
+                return true;
             }
-
-            // 创建一把原版武器 InventItem，类型是 Weapon，id 是 AdeleScythe。
-            var testWeaponItem = new InventItem(new InventItemKind.Weapon(TestWeaponId.AsHaxeString()));
-
-            // 在英雄右侧一格生成死神镰刀，方便继续测试不同武器的攻速手感。
-            SpawnItemDrop(hero, testWeaponItem, hero.cx + 1, hero.cy);
-
-            // 到这里说明生成成功，之后不再重复生成。
-            _hasSpawnedTalisman = true;
-
-            // 写入调试日志，包含生成位置，方便确认出生点是否触发。
-            DebugLog(
-                alreadyHasTalisman
-                    ? $"Skipped {TalismanId} because hero already has it; spawned {TestWeaponId} at {hero.cx + 1},{hero.cy}"
-                    : $"Spawned {TalismanId} at {hero.cx},{hero.cy}; spawned {TestWeaponId} at {hero.cx + 1},{hero.cy}");
-
-            // 写入 Core 日志，便于从 log_latest.log 排查。
-            Logger.Information(
-                alreadyHasTalisman
-                    ? "Skipped SpeedTalisman spawn because hero already has it; spawned {0} at hero position."
-                    : "Spawned SpeedTalisman and {0} at hero position.",
-                TestWeaponId);
         }
         catch (Exception ex)
         {
-            // 生成失败不设置 _hasSpawnedTalisman，让 OnHeroUpdate 之后继续重试。
-            DebugLog($"Spawn failed: {ex}");
-
-            // 同时写入 Core 日志，包含异常对象。
-            Logger.Warning("Failed to spawn SpeedTalisman: {0}", ex);
-        }
-    }
-
-    // 在指定格子坐标生成一个可拾取掉落物。
-    private static ItemDrop SpawnItemDrop(Hero hero, InventItem item, int cellX, int cellY)
-    {
-        // ItemDrop 构造函数需要一个 ref bool，游戏内部会用它表示掉落物是否应被销毁。
-        var shouldDestroy = false;
-
-        // 在英雄当前关卡和指定格子坐标上创建掉落物。
-        // hero._level 是当前关卡对象，cellX/cellY 是希望掉落物出现的格子坐标。
-        // true 表示这是一个可拾取掉落物。
-        var drop = new ItemDrop(hero._level, cellX, cellY, item, true, new Ref<bool>(ref shouldDestroy));
-
-        // 初始化掉落物。原版示例里也必须调用 init，否则可能崩溃。
-        drop.init();
-
-        // 标记为 loot 掉落，让游戏应用掉落物的表现和交互逻辑。
-        drop.onDropAsLoot();
-
-        // 让掉落物继承英雄当前 x 方向速度；这是官方示例里的做法，可减少掉落状态异常。
-        drop.dx = hero.dx;
-
-        // 返回创建出的掉落物，后续如果要调位置、速度或日志，可以继续使用。
-        return drop;
-    }
-
-    // 判断当前英雄是否装备了本 Mod 的护符。
-    private static bool HasSpeedTalisman(Hero hero)
-    {
-        // 1. 优先使用游戏公开的 Inventory API。
-        // 反射确认 dc.tool.Inventory 有 hasTalisman() / getTalisman() / hasItem()。
-        // 这比猜测 Hero 内部字段更稳定，也更接近游戏原本的装备判断。
-        if (HasSpeedTalismanInInventory(hero.inventory, out var inventorySource))
-        {
-            // 第一次或来源变化时写日志，确认当前检测路径已经命中。
-            LogDetectionSource(inventorySource);
-            return true;
+            // 如果当前版本的 hasItem 不支持 Perk，也不要影响游戏；日志会提示我们继续补字段探测。
+            LogDetectionSource($"inventory.hasItem({SpeedMutationId}) failed: {ex.GetType().Name}");
         }
 
+        // 公开 API 没命中时，尝试从 hero/inventory 的动态字段里查找变异 id。
+        // 这段是兜底兼容：不同游戏版本可能把已选变异放在 perks、_perks 或 inventory 内部数组里。
+        return HasSpeedMutationInDynamicFields(hero);
+    }
+
+    // 从动态字段兜底查找迅捷变异 id。
+    private static bool HasSpeedMutationInDynamicFields(Hero hero)
+    {
         try
         {
-            // 2. 兜底：如果公开 Inventory API 没命中，再读 Hero 底层动态字段。
-            // 这段保留是为了兼容某些版本或特殊角色装备字段不同的情况。
-
-            // hero.HashlinkObj 是底层 Hashlink 对象；转成字段对象后可以动态读私有/未代理字段。
-            var heroFields = hero.HashlinkObj as IHashlinkFieldObject;
-
-            // 原游戏字段名可能是 _talisman，也可能是 talisman；两个都尝试读取。
-            var talisman = heroFields?.GetFieldValue("_talisman")
-                        ?? heroFields?.GetFieldValue("talisman");
-
-            // 如果当前没有护符对象，或者对象不能读取字段，就认为未装备。
-            if (talisman is not IHashlinkFieldObject talismanFields) return false;
-
-            // 护符对象内部通常会保存 _itemData/itemData，里面包含 id/name 等 CDB 数据。
-            var itemData = talismanFields.GetFieldValue("_itemData") as IHashlinkFieldObject
-                        ?? talismanFields.GetFieldValue("itemData") as IHashlinkFieldObject;
-
-            // 从 itemData 里读取 id，并转换成 C# 字符串。
-            var id = itemData?.GetFieldValue("id")?.ToString();
-
-            // 只有 id 精确等于 SpeedTalisman 时，才认为装备了本 Mod 护符。
-            var matched = string.Equals(id, TalismanId, StringComparison.Ordinal);
-            if (matched)
-            {
-                LogDetectionSource("hero dynamic field _talisman/talisman");
-            }
-            return matched;
+            // 先检查 hero 自身，再检查 inventory 对象；任意一边找到 P_SpeedInstinct 都认为变异已选。
+            return ObjectGraphContainsItemId(hero.HashlinkObj, SpeedMutationId, "hero")
+                || ObjectGraphContainsItemId(hero.inventory?.HashlinkObj, SpeedMutationId, "inventory");
         }
-        catch
+        catch (Exception ex)
         {
-            // 动态字段读取失败时不要影响游戏流程，保守返回 false。
+            // 动态字段读取失败时保守返回 false，并记录一次轻量线索。
+            LogDetectionSource($"dynamic perk scan failed: {ex.GetType().Name}");
             return false;
         }
     }
 
-    // 使用游戏公开的 Inventory API 检测是否装备迅捷护符。
-    private static bool HasSpeedTalismanInInventory(Inventory? inventory, out string source)
+    // 在一个 Hashlink 对象的浅层字段里查找指定物品 id。
+    private static bool ObjectGraphContainsItemId(object? root, string itemId, string sourceName)
     {
-        // 默认来源说明，失败时调用方不会使用。
-        source = "";
+        // 只做浅层扫描，避免每帧深度遍历整个游戏对象图导致性能和循环引用问题。
+        if (root is not IHashlinkFieldObject fields) return false;
 
-        // 没有 inventory 说明英雄装备栏还没准备好。
-        if (inventory == null) return false;
-
-        // 先尝试 getTalisman()，这是最直接的“当前装备护符”读取方式。
-        try
+        foreach (var fieldName in new[] { "perks", "_perks", "items", "_items", "inventory", "_inventory" })
         {
-            // 如果当前装备了护符，游戏会返回一个 InventItem；否则可能返回 null 或抛异常。
-            var talisman = inventory.getTalisman();
-
-            // InventItem._itemData.id 是 CDB 里的物品 id。
-            var id = talisman?._itemData.id.ToString();
-
-            // id 命中 SpeedTalisman 就说明装备了我们的护符。
-            if (string.Equals(id, TalismanId, StringComparison.Ordinal))
+            var fieldValue = fields.GetFieldValue(fieldName);
+            if (ValueContainsItemId(fieldValue, itemId))
             {
-                source = "inventory.getTalisman()._itemData.id";
+                LogDetectionSource($"{sourceName}.{fieldName} contains {itemId}");
                 return true;
             }
-        }
-        catch (Exception ex)
-        {
-            // getTalisman 在没有护符或状态未初始化时可能失败，记录一次轻量原因即可。
-            LogDetectionSource($"inventory.getTalisman failed: {ex.GetType().Name}");
-        }
-
-        // 再尝试 hasItem(id)。这个函数检查 inventory 是否含有某个 id 的物品。
-        try
-        {
-            if (inventory.hasItem(TalismanId.AsHaxeString()))
-            {
-                source = "inventory.hasItem(SpeedTalisman)";
-                return true;
-            }
-        }
-        catch (Exception ex)
-        {
-            // hasItem 失败同样不影响游戏，只作为调试线索。
-            LogDetectionSource($"inventory.hasItem failed: {ex.GetType().Name}");
-        }
-
-        // 最后尝试 hasTalisman()。它只能说明“有护符”，不能说明一定是本 Mod 护符。
-        // 因此这里只记录日志，不直接返回 true，避免玩家装备其他护符时误触发攻速加成。
-        try
-        {
-            if (inventory.hasTalisman())
-            {
-                LogDetectionSource("inventory.hasTalisman true, but id not matched");
-            }
-        }
-        catch
-        {
         }
 
         return false;
     }
 
-    // 装备检测来源日志。只在来源变化时写，避免每帧刷屏。
+    // 判断某个字段值、数组或物品对象里是否包含指定 id。
+    private static bool ValueContainsItemId(object? value, string itemId)
+    {
+        // 空字段肯定不命中。
+        if (value == null) return false;
+
+        // 字段本身就是字符串时直接比较。
+        if (string.Equals(value.ToString(), itemId, StringComparison.Ordinal)) return true;
+
+        // InventItem 有 _itemData.id，命中即可。
+        if (TryReadItemId(value, out var directId) && string.Equals(directId, itemId, StringComparison.Ordinal)) return true;
+
+        // Haxe 数组在 C# 侧通常实现 IEnumerable；逐个检查其中的元素。
+        if (value is System.Collections.IEnumerable enumerable and not string)
+        {
+            foreach (var element in enumerable)
+            {
+                if (TryReadItemId(element, out var elementId) && string.Equals(elementId, itemId, StringComparison.Ordinal)) return true;
+                if (string.Equals(element?.ToString(), itemId, StringComparison.Ordinal)) return true;
+            }
+        }
+
+        return false;
+    }
+
+    // 从 InventItem 或类似对象里读取 _itemData/itemData.id。
+    private static bool TryReadItemId(object? value, out string? id)
+    {
+        id = null;
+
+        if (value is not IHashlinkFieldObject fields) return false;
+
+        var itemData = fields.GetFieldValue("_itemData") as IHashlinkFieldObject
+                    ?? fields.GetFieldValue("itemData") as IHashlinkFieldObject;
+
+        id = itemData?.GetFieldValue("id")?.ToString();
+        return !string.IsNullOrEmpty(id);
+    }
+
+    // 变异检测来源日志。只在来源变化时写，避免每帧刷屏。
     private static void LogDetectionSource(string source)
     {
         if (source == _lastDetectionSource) return;
         _lastDetectionSource = source;
-        DebugLog($"Talisman detection: {source}");
+        DebugLog($"Speed mutation detection: {source}");
     }
 
     // 根据当前 Boss 细胞数量计算最终攻速加成。
@@ -525,16 +412,16 @@ public class ModEntry(ModInfo info) : ModBase(info),
             RememberPlayerWeaponItem(item);
         }
 
-        // 先记录 hook 是否真的进来。即使当前没装备护符，也能知道 tool.$Weapon.create 有没有被拦截到。
+        // 先记录 hook 是否真的进来。即使当前没选择迅捷变异，也能知道 tool.$Weapon.create 有没有被拦截到。
         if (_weaponHookLogCount < 20)
         {
             _weaponHookLogCount++;
             DebugLog(
-                $"Weapon.create hook #{_weaponHookLogCount}: equipped={_hasTalismanEquipped}, bonus={_currentSpeedBonus:P0}, weaponType={weapon.GetType().FullName}, heroIsPlayer={ReferenceEquals(hero, Game.Instance.HeroInstance)}");
+                $"Weapon.create hook #{_weaponHookLogCount}: mutation={_hasSpeedMutation}, bonus={_currentSpeedBonus:P0}, weaponType={weapon.GetType().FullName}, heroIsPlayer={ReferenceEquals(hero, Game.Instance.HeroInstance)}");
         }
 
-        // 没装备护符或加成为 0 时，不修改任何武器数据。
-        if (!_hasTalismanEquipped || _currentSpeedBonus <= 0) return;
+        // 没选择迅捷变异或加成为 0 时，不修改任何武器数据。
+        if (!_hasSpeedMutation || _currentSpeedBonus <= 0) return;
 
         // 只修改当前玩家英雄的武器，避免影响敌人、分身或其他非玩家来源。
         if (!ReferenceEquals(hero, Game.Instance.HeroInstance)) return;
@@ -564,11 +451,23 @@ public class ModEntry(ModInfo info) : ModBase(info),
     // 把当前攻速参数重新套到已缓存的玩家武器物品上。
     private static void ReapplyKnownWeaponItems(Hero hero, string reason)
     {
-        // 没有护符或没有加成时不改；正式 0 细胞会走到这里并直接跳过。
-        if (!_hasTalismanEquipped || _currentSpeedBonus <= 0) return;
-
         // 只允许玩家英雄触发重套，保持作用范围干净。
         if (!ReferenceEquals(hero, Game.Instance.HeroInstance)) return;
+
+        // 没有迅捷变异或加成为 0 时，把之前改过的武器恢复到缓存的原始值。
+        // 这样重置变异、切回 0 细胞或 debug 配置改成 0 时，不会留下旧攻速。
+        if (!_hasSpeedMutation || _currentSpeedBonus <= 0)
+        {
+            var restored = 0;
+            foreach (var item in _knownPlayerWeaponItems.ToArray())
+            {
+                if (RestoreWeaponItem(item, reason)) restored++;
+            }
+
+            ForceRefreshEquippedWeapons(hero);
+            DebugLog($"Restored cached weapons: count={restored}, reason={reason}");
+            return;
+        }
 
         var reapplied = 0;
         foreach (var item in _knownPlayerWeaponItems.ToArray())
@@ -580,6 +479,66 @@ public class ModEntry(ModInfo info) : ModBase(info),
         ForceRefreshEquippedWeapons(hero);
 
         DebugLog($"Reapplied speed bonus to cached weapons: count={reapplied}, reason={reason}, bonus={_currentSpeedBonus:P0}");
+    }
+
+    // 把某个玩家武器物品恢复到最初缓存的攻击段字段值。
+    private static bool RestoreWeaponItem(InventItem item, string reason)
+    {
+        try
+        {
+            // 武器连段数据仍然存在于 InventItem.getWeaponData().strikeChain。
+            var weaponData = item.getWeaponData();
+            var strikeChain = weaponData?.strikeChain;
+            if (strikeChain == null) return false;
+
+            var restoredStrikes = 0;
+            var restoredFields = 0;
+
+            // 逐个攻击段恢复字段；没有缓存过原始值的字段不会被动。
+            for (var i = 0; i < strikeChain.length; i++)
+            {
+                var strike = strikeChain.getDyn(i);
+                var changed = RestoreStrikeFields(strike);
+                if (changed > 0) restoredStrikes++;
+                restoredFields += changed;
+            }
+
+            DebugLog(
+                $"Weapon restore result: reason={reason}, count={strikeChain.length}, restoredStrikes={restoredStrikes}, restoredFields={restoredFields}");
+
+            return restoredStrikes > 0;
+        }
+        catch (Exception ex)
+        {
+            // 恢复失败也不要影响游戏运行，只记录日志便于后续判断是哪类武器结构特殊。
+            DebugLog($"Weapon restore exception: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    // 恢复单个攻击段被本 Mod 改过的字段。
+    private static int RestoreStrikeFields(object? strike)
+    {
+        if (strike is not IHashlinkFieldObject strikeFields) return 0;
+
+        var objectKey = RuntimeHelpers.GetHashCode(strikeFields);
+        if (!_originalStrikeFieldValues.TryGetValue(objectKey, out var fieldValues)) return 0;
+
+        var restored = 0;
+        foreach (var pair in fieldValues)
+        {
+            try
+            {
+                strikeFields.SetFieldValue(pair.Key, pair.Value);
+                restored++;
+            }
+            catch
+            {
+                // 某些字段可能在特殊武器上只读或已失效，跳过即可。
+            }
+        }
+
+        return restored;
     }
 
     // 尝试让游戏刷新当前装备武器。配置热加载后仅改 InventItem 数据不一定会影响已创建的 Weapon 实例。
