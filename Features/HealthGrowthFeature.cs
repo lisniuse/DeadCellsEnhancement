@@ -60,7 +60,53 @@ internal sealed class HealthGrowthFeature : Core.IModFeature
         Hook_Hero.setLifeAndRally += Hook_Hero_setLifeAndRally;
         Hook_Hero.updateMaxLife += Hook_Hero_updateMaxLife;
         Hook_Hero.overrideMaxLife += Hook_Hero_overrideMaxLife;
+
+        // 死亡 / 复活 / 生命初始化（新一局）时清空本局累计状态。
+        // 否则死前的累计加成和生命快照会被带过去，跟游戏的复活回满逻辑打架，
+        // 导致复活后生命被钉在旧快照、没有回满。
+        Hook_Hero.onDie += Hook_Hero_onDie;
+        Hook_Hero.deathRespawn += Hook_Hero_deathRespawn;
+        Hook_Hero.initLife += Hook_Hero_initLife;
+
         ModEntry.DebugLog("HealthGrowthFeature initialized.");
+    }
+
+    // 英雄死亡时清空本局累计状态。
+    private void Hook_Hero_onDie(Hook_Hero.orig_onDie orig, Hero self)
+    {
+        if (ReferenceEquals(self, Game.Instance.HeroInstance)) ResetRunState("onDie");
+        orig(self);
+    }
+
+    // 英雄死后复活时清空本局累计状态。在原版复活逻辑之前清，
+    // 这样复活流程里游戏对 maxLife / life 的重置不会被本功能的旧加成/旧快照干扰。
+    private void Hook_Hero_deathRespawn(Hook_Hero.orig_deathRespawn orig, Hero self)
+    {
+        if (ReferenceEquals(self, Game.Instance.HeroInstance)) ResetRunState("deathRespawn");
+        orig(self);
+    }
+
+    // 生命初始化（通常是开新一局/重建英雄）时清空本局累计状态，
+    // 覆盖“上一局没死、通关后开新一局”这类不会触发 onDie 的情况。
+    private void Hook_Hero_initLife(Hook_Hero.orig_initLife orig, Hero self, double v, int? max)
+    {
+        if (ReferenceEquals(self, Game.Instance.HeroInstance)) ResetRunState("initLife");
+        orig(self, v, max);
+    }
+
+    // 清空本局累计的最大生命加成、装备生命快照和击杀去重，让生命相关逻辑回到初始状态。
+    private void ResetRunState(string reason)
+    {
+        _accumulatedMaxLifeBonus = 0;
+        _appliedMaxLifeBonus = 0;
+        _lastAppliedMaxLife = null;
+        _pendingEquipmentLife = null;
+        _pendingEquipmentLifeFrames = 0;
+        _lastSeenLife = null;
+        _lastSeenMaxLife = null;
+        _recentMobKeys.Clear();
+        _recentMobKeySet.Clear();
+        ModEntry.DebugLog($"Health growth run state reset: reason={reason}");
     }
 
     // 每帧更新变异选择状态。只在状态变化时写日志，避免刷屏。
