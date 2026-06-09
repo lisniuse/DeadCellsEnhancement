@@ -28,8 +28,11 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
     // 已经经过 Weapon.create 的玩家武器物品。配置热加载或变异选择状态变化后，会尝试给这些武器重新套用参数。
     private readonly System.Collections.Generic.List<InventItem> _knownPlayerWeaponItems = [];
 
-    // 每个攻击段字段的原始值缓存。动态调参时必须从原始值重新计算，不能在已缩放结果上反复相乘。
-    private readonly System.Collections.Generic.Dictionary<int, System.Collections.Generic.Dictionary<string, object?>> _originalStrikeFieldValues = [];
+    // 每把武器物品、每个攻击段字段的原始值缓存。
+    // 这里必须按 InventItem + strikeIndex 缓存，而不能按 strike 对象本身缓存：
+    // 游戏刷新装备时可能会重建 strike 对象，新对象里的数值有机会已经是本 Mod 修改后的数值。
+    // 如果这时把“已修改值”当成原始值，后续每次刷新都会继续乘倍率，1 细胞也会越打越像 5 细胞。
+    private readonly System.Collections.Generic.Dictionary<int, WeaponOriginalFieldCache> _originalWeaponFieldValues = [];
 
     // 装备刷新剩余次数。武器实例有时不会在一次 onEquipedItemsChange 后立刻完全重建，所以连续几帧补刷。
     private int _pendingWeaponRefreshFrames;
@@ -153,7 +156,17 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
         // 控制缓存长度，避免长时间游戏后列表无限增长。
         if (_knownPlayerWeaponItems.Count >= 24)
         {
+            var removedItem = _knownPlayerWeaponItems[0];
             _knownPlayerWeaponItems.RemoveAt(0);
+
+            // 只清掉“已经不在背包里”的物品的原始值缓存。
+            // 如果武器仍在背包里（只是被挤出本列表），它的连段数据可能已经是本 Mod 改小后的值；
+            // 一旦清掉基准值，下次再装备时会把“已改小值”当成原始值，导致该武器重新开始叠乘。
+            // 仍持有的武器对象也不会被 GC，因此保留它的缓存不会有哈希复用问题。
+            if (!IsItemStillOwned(removedItem))
+            {
+                _originalWeaponFieldValues.Remove(GetWeaponItemCacheKey(removedItem));
+            }
         }
 
         _knownPlayerWeaponItems.Add(item);
@@ -219,7 +232,7 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
             for (var i = 0; i < strikeChain.length; i++)
             {
                 var strike = strikeChain.getDyn(i);
-                var changed = RestoreStrikeFields(strike);
+                var changed = RestoreStrikeFields(item, i, strike);
                 if (changed > 0) restoredStrikes++;
                 restoredFields += changed;
             }
@@ -238,12 +251,13 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
     }
 
     // 恢复单个攻击段被本 Mod 改过的字段。
-    private int RestoreStrikeFields(object? strike)
+    private int RestoreStrikeFields(InventItem item, int strikeIndex, object? strike)
     {
         if (strike is not IHashlinkFieldObject strikeFields) return 0;
 
-        var objectKey = RuntimeHelpers.GetHashCode(strikeFields);
-        if (!_originalStrikeFieldValues.TryGetValue(objectKey, out var fieldValues)) return 0;
+        var weaponKey = GetWeaponItemCacheKey(item);
+        if (!_originalWeaponFieldValues.TryGetValue(weaponKey, out var weaponCache)) return 0;
+        if (!weaponCache.Strikes.TryGetValue(strikeIndex, out var fieldValues)) return 0;
 
         var restored = 0;
         foreach (var pair in fieldValues)
@@ -331,7 +345,7 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
             for (var i = 0; i < strikeChain.length; i++)
             {
                 var strike = strikeChain.getDyn(i);
-                var changed = ApplySpeedBonusToStrike(strike, multiplier);
+                var changed = ApplySpeedBonusToStrike(item, i, strike, multiplier);
                 if (changed > 0) modifiedStrikes++;
                 changedFields += changed;
             }
@@ -350,7 +364,7 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
     }
 
     // 对单个攻击段 strike 应用攻速加成。
-    private int ApplySpeedBonusToStrike(object? strike, double multiplier)
+    private int ApplySpeedBonusToStrike(InventItem item, int strikeIndex, object? strike, double multiplier)
     {
         // strike 必须能作为 Hashlink 字段对象读取/写入，否则无法修改它的参数。
         if (strike is not IHashlinkFieldObject strikeFields)
@@ -362,25 +376,25 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
         var changedFields = 0;
 
         // 攻击段的各时间字段统一按 multiplier 缩短：冷却、蓄力、控制锁定、命中帧、前摇、后摇。
-        if (ScaleDoubleField(strikeFields, "coolDown", multiplier)) changedFields++;
-        if (ScaleDoubleField(strikeFields, "charge", multiplier)) changedFields++;
-        if (ScaleDoubleField(strikeFields, "lockCtrlAfter", multiplier)) changedFields++;
-        if (ScaleDoubleField(strikeFields, "hitFrame", multiplier)) changedFields++;
-        if (ScaleDoubleField(strikeFields, "startUp", multiplier)) changedFields++;
-        if (ScaleDoubleField(strikeFields, "recovery", multiplier)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "coolDown", multiplier)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "charge", multiplier)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "lockCtrlAfter", multiplier)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "hitFrame", multiplier)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "startUp", multiplier)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "recovery", multiplier)) changedFields++;
 
         // 动画速度只吃一半加成：时间字段已经缩短一次，动画再完整叠加会显得过快。
-        if (ScaleDoubleField(strikeFields, "animSpd", 1.0 + _currentSpeedBonus * AnimationSpeedBonusScale)) changedFields++;
+        if (ScaleDoubleField(item, strikeIndex, strikeFields, "animSpd", 1.0 + _currentSpeedBonus * AnimationSpeedBonusScale)) changedFields++;
 
         return changedFields;
     }
 
     // 按 multiplier 缩放某个字段，兼容 double/float/int 三种常见数值类型。
-    private bool ScaleDoubleField(IHashlinkFieldObject fields, string name, double multiplier)
+    private bool ScaleDoubleField(InventItem item, int strikeIndex, IHashlinkFieldObject fields, string name, double multiplier)
     {
         try
         {
-            var value = GetOriginalFieldValue(fields, name);
+            var value = GetOriginalFieldValue(item, strikeIndex, fields, name);
             switch (value)
             {
                 case double d:
@@ -403,14 +417,20 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
     }
 
     // 读取某个攻击段字段的原始值。第一次读取时缓存，后续调参都从这个原始值重新计算。
-    private object? GetOriginalFieldValue(IHashlinkFieldObject fields, string name)
+    private object? GetOriginalFieldValue(InventItem item, int strikeIndex, IHashlinkFieldObject fields, string name)
     {
-        var objectKey = RuntimeHelpers.GetHashCode(fields);
+        var weaponKey = GetWeaponItemCacheKey(item);
 
-        if (!_originalStrikeFieldValues.TryGetValue(objectKey, out var fieldValues))
+        if (!_originalWeaponFieldValues.TryGetValue(weaponKey, out var weaponCache))
+        {
+            weaponCache = new WeaponOriginalFieldCache();
+            _originalWeaponFieldValues[weaponKey] = weaponCache;
+        }
+
+        if (!weaponCache.Strikes.TryGetValue(strikeIndex, out var fieldValues))
         {
             fieldValues = [];
-            _originalStrikeFieldValues[objectKey] = fieldValues;
+            weaponCache.Strikes[strikeIndex] = fieldValues;
         }
 
         if (fieldValues.TryGetValue(name, out var originalValue))
@@ -421,6 +441,44 @@ internal sealed class SpeedInstinctFeature : Core.IModFeature
         originalValue = fields.GetFieldValue(name);
         fieldValues[name] = originalValue;
         return originalValue;
+    }
+
+    // InventItem 没有稳定公开 id 时，用运行时对象身份作为本局游戏内的缓存 key。
+    // 同一个背包物品在装备刷新时仍然是同一个 InventItem，因此比 transient strike 对象稳定。
+    private static int GetWeaponItemCacheKey(InventItem item)
+    {
+        return RuntimeHelpers.GetHashCode(item);
+    }
+
+    // 判断某个武器物品是否仍在当前玩家背包里（按对象身份比对，而非按 id）。
+    // 用于决定驱逐缓存列表时是否要连原始值缓存一起清掉。
+    private static bool IsItemStillOwned(InventItem item)
+    {
+        try
+        {
+            var inventory = Game.Instance.HeroInstance?.inventory;
+            var items = inventory?.items;
+            if (items == null) return false;
+
+            for (var i = 0; i < items.length; i++)
+            {
+                if (ReferenceEquals(items.getDyn(i), item)) return true;
+            }
+        }
+        catch
+        {
+            // 读取背包失败时保守认为“仍持有”，宁可少清一次缓存也不要错误地清掉基准值。
+            return true;
+        }
+
+        return false;
+    }
+
+    // 单把武器的原始攻击段字段表。
+    // 外层 key 是连段序号，内层 key 是字段名，比如 coolDown/recovery/animSpd。
+    private sealed class WeaponOriginalFieldCache
+    {
+        internal readonly System.Collections.Generic.Dictionary<int, System.Collections.Generic.Dictionary<string, object?>> Strikes = [];
     }
 
     // 原始 tool.$Weapon.create 的函数签名：传入英雄和背包物品，返回创建出的武器对象。
