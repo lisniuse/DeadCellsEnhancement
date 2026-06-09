@@ -23,3 +23,9 @@ msgstr "Only while this mutation is selected, each enemy killed increases maximu
 
 msgid "Reforge to random Legendary quality"
 msgstr "Reforge to random Legendary quality"
+
+msgid "Alchemic Forge"
+msgstr "Alchemic Forge"
+
+msgid "Unlocks the \"Reforge to random Legendary quality\" option at the underground forge, where you can spend gold to reforge an item into a random Legendary."
+msgstr "Unlocks the \"Reforge to random Legendary quality\" option at the underground forge, where you can spend gold to reforge an item into a random Legendary."

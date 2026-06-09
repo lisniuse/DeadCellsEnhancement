@@ -14,15 +14,68 @@ internal sealed class LegendaryForgeFeature : Core.IModFeature
     // 每次尝试升级为传奇品质需要消耗的金币数量。
     private const int LegendaryUpgradeCost = 6000;
 
+    // 本功能对应的「形态(Aspect)」物品 id。group 15 即形态；只有玩家在形态界面选了它，
+    // 重铸商店才会出现金色重铸选项。这个 id 会写进存档解锁记录，确定后不要改名。
+    internal const string AspectId = "ASP_LegendaryForge";
+
     // 选项文字里需要翻译的部分。金币数量在运行时拼到后面，所以这里只翻译描述本身。
     // 翻译来自 lang/DeadCellsEnhancement.<lang>.mo，英文回退到 msgid 本身。
     private const string LegendaryUpgradeLabelKey = "Reforge to random Legendary quality";
+
+    // 是否已经把本形态解锁到存档里。形态必须先在 itemMeta 里解锁，才会出现在形态选择界面。
+    private bool _aspectUnlocked;
 
     // 初始化功能，挂进小铸造所的装备行创建流程。
     public void Initialize()
     {
         Hook_ForgeUnderground.addItem += Hook_ForgeUnderground_addItem;
-        ModEntry.DebugLog($"LegendaryForgeFeature initialized: cost={LegendaryUpgradeCost}.");
+        ModEntry.DebugLog($"LegendaryForgeFeature initialized: cost={LegendaryUpgradeCost}, aspect={AspectId}.");
+    }
+
+    // 每帧检查一次：进入游戏后尽早把本形态解锁进存档，使其出现在形态选择界面。
+    // 解锁是持久化的 meta 数据，成功一次后就不再尝试。
+    public void OnHeroUpdate(Hero hero)
+    {
+        if (_aspectUnlocked) return;
+        if (TryUnlockAspect()) _aspectUnlocked = true;
+    }
+
+    // 把本形态解锁到玩家存档的 itemMeta 里。已解锁则跳过，避免重复触发解锁提示。
+    private static bool TryUnlockAspect()
+    {
+        try
+        {
+            var meta = dc.pr.Game.Class.ME?.user?.itemMeta;
+            if (meta == null) return false;
+
+            var key = AspectId.AsHaxeString();
+            if (!meta.hasUnlockedItem(key))
+            {
+                meta.unlockItem(key);
+                ModEntry.DebugLog($"Unlocked aspect into itemMeta: {AspectId}.");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ModEntry.DebugLog($"Unlock aspect failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    // 判断当前玩家是否选择了「炼金铸造」形态。形态选中后会作为 InventItem 进入背包，用 hasItem 查询即可。
+    private static bool PlayerHasAspect()
+    {
+        try
+        {
+            var hero = Game.Instance.HeroInstance;
+            return hero?.inventory != null && hero.inventory.hasItem(AspectId.AsHaxeString());
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     // 小铸造所每添加一件装备时会调用 addItem。
@@ -35,11 +88,9 @@ internal sealed class LegendaryForgeFeature : Core.IModFeature
     {
         var itemFlow = orig(self, item, parent);
 
-        // 关键修复：不是每一行都会返回有效的行容器。某些行（非武器/不可重铸项）orig 会返回 null，
-        // 在 null 上 new FlowBox / registerChoice 会构造出脱离父级的孤儿控件，
-        // 进而在游戏后续的 onResize 布局遍历里触发 "Null access .onResize" 崩溃。
-        // 只有拿到有效行容器时才追加我们的选项。
-        if (itemFlow != null)
+        // 形态门控：只有玩家选择了「炼金铸造」形态，才在重铸商店追加金色重铸选项。
+        // 没选这个形态时，重铸商店保持原版样子。
+        if (itemFlow != null && PlayerHasAspect())
         {
             try
             {

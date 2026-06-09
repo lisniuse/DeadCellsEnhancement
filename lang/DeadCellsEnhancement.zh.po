@@ -23,3 +23,9 @@ msgstr "只有选择这项变异时，每击杀一个敌人都会使最大生命
 
 msgid "Reforge to random Legendary quality"
 msgstr "重铸为随机金色品质"
+
+msgid "Alchemic Forge"
+msgstr "炼金铸造"
+
+msgid "Unlocks the \"Reforge to random Legendary quality\" option at the underground forge, where you can spend gold to reforge an item into a random Legendary."
+msgstr "在小铸造所解锁「重铸为随机金色品质」选项，可花费金币把一件装备重铸为随机的传奇（金色）品质。"
