@@ -295,6 +295,10 @@ internal sealed class LegendaryForgeFeature : Core.IModFeature
                 return;
             }
 
+            // 扣钱后刷新金币显示：原版每个铸造选项扣钱后都会调 count.setValue 更新铸造所自己的金币计数器，
+            // 否则右下角金额不会变。同时刷新一次 HUD 的金币计数器，和原版的“提升质量”选项保持一致。
+            RefreshMoneyDisplays(forge);
+
             // 关键修复：真正“变金色”是让物品带上 Legendary 词条后用原版规则重算属性。
             // finalizeLegendary 只加了 Colorless，并不会变传奇。正确做法是：
             // 1) 先给物品加上 Legendary 词条；
@@ -325,6 +329,32 @@ internal sealed class LegendaryForgeFeature : Core.IModFeature
         catch (Exception ex)
         {
             ModEntry.DebugLog($"Legendary forge upgrade failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // 刷新铸造所右下角金币计数器和 HUD 金币计数器，使其反映扣款后的余额。
+    private static void RefreshMoneyDisplays(ForgeUnderground forge)
+    {
+        var money = GetCurrentMoney();
+
+        try
+        {
+            var animated = true;
+            forge.count.setValue(money, new Ref<bool>(ref animated));
+        }
+        catch (Exception ex)
+        {
+            ModEntry.DebugLog($"Forge money count refresh failed: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        try
+        {
+            var hudAnimated = true;
+            dc.pr.Game.Class.ME.hud.moneyCount.setValue(money, new Ref<bool>(ref hudAnimated));
+        }
+        catch (Exception ex)
+        {
+            ModEntry.DebugLog($"HUD money count refresh failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
